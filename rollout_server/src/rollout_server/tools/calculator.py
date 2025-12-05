@@ -20,11 +20,23 @@ Usage:
 
 import asyncio
 import json
-import random
-from typing import Dict, Any
 import logging
+import random
+from typing import Any, Callable, Coroutine, Dict, List, Union
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+# Simulated delay range for tool execution (seconds)
+TOOL_DELAY_MIN_SECONDS = 0.1
+TOOL_DELAY_MAX_SECONDS = 0.5
+
+# Type alias for async tool functions
+ToolFunction = Callable[..., Coroutine[Any, Any, float]]
 
 
 # =============================================================================
@@ -42,7 +54,7 @@ async def add(a: float, b: float) -> float:
     Returns:
         Sum of a and b
     """
-    delay = random.uniform(0.1, 0.5)
+    delay = random.uniform(TOOL_DELAY_MIN_SECONDS, TOOL_DELAY_MAX_SECONDS)
     await asyncio.sleep(delay)
     result = a + b
     logger.debug(f"add({a}, {b}) = {result} (delay: {delay:.2f}s)")
@@ -59,7 +71,7 @@ async def subtract(a: float, b: float) -> float:
     Returns:
         Difference of a and b
     """
-    delay = random.uniform(0.1, 0.5)
+    delay = random.uniform(TOOL_DELAY_MIN_SECONDS, TOOL_DELAY_MAX_SECONDS)
     await asyncio.sleep(delay)
     result = a - b
     logger.debug(f"subtract({a}, {b}) = {result} (delay: {delay:.2f}s)")
@@ -76,7 +88,7 @@ async def multiply(a: float, b: float) -> float:
     Returns:
         Product of a and b
     """
-    delay = random.uniform(0.1, 0.5)
+    delay = random.uniform(TOOL_DELAY_MIN_SECONDS, TOOL_DELAY_MAX_SECONDS)
     await asyncio.sleep(delay)
     result = a * b
     logger.debug(f"multiply({a}, {b}) = {result} (delay: {delay:.2f}s)")
@@ -96,7 +108,7 @@ async def divide(a: float, b: float) -> float:
     Raises:
         ValueError: If b is zero
     """
-    delay = random.uniform(0.1, 0.5)
+    delay = random.uniform(TOOL_DELAY_MIN_SECONDS, TOOL_DELAY_MAX_SECONDS)
     await asyncio.sleep(delay)
 
     if b == 0:
@@ -109,7 +121,7 @@ async def divide(a: float, b: float) -> float:
 
 
 # Registry of available calculator tools
-CALCULATOR_TOOLS = {
+CALCULATOR_TOOLS: Dict[str, ToolFunction] = {
     "add": add,
     "subtract": subtract,
     "multiply": multiply,
@@ -122,7 +134,44 @@ CALCULATOR_TOOLS = {
 # =============================================================================
 
 
-async def execute_calculator_call(tool_call: Dict[str, Any]) -> Dict[str, Any]:
+def _serialize_result(result: Any) -> str:
+    """Serialize tool result to string for consistent output.
+
+    Args:
+        result: The result to serialize
+
+    Returns:
+        JSON-serialized string representation
+    """
+    if isinstance(result, (int, float)):
+        # For numeric results, use simple string representation
+        # This preserves precision better for simple numbers
+        return str(result)
+    elif isinstance(result, str):
+        return result
+    else:
+        # For complex objects, use JSON serialization
+        return json.dumps(result)
+
+
+def _create_tool_result(tool_call_id: str, content: str) -> Dict[str, str]:
+    """Create a standardized tool result dict.
+
+    Args:
+        tool_call_id: The ID of the tool call
+        content: The content of the result
+
+    Returns:
+        Tool result dict with role, content, and tool_call_id
+    """
+    return {
+        "role": "tool",
+        "content": content,
+        "tool_call_id": tool_call_id
+    }
+
+
+async def execute_calculator_call(tool_call: Dict[str, Any]) -> Dict[str, str]:
     """Execute a calculator tool call.
 
     Args:
@@ -144,9 +193,10 @@ async def execute_calculator_call(tool_call: Dict[str, Any]) -> Dict[str, Any]:
                 "tool_call_id": "call_123"
             }
     """
-    tool_call_id = tool_call["id"]
-    function_name = tool_call["function"]["name"]
-    arguments = tool_call["function"]["arguments"]
+    tool_call_id: str = tool_call.get("id", "unknown")
+    function_data = tool_call.get("function", {})
+    function_name: str = function_data.get("name", "")
+    arguments: Union[str, Dict[str, Any]] = function_data.get("arguments", {})
 
     # Parse arguments if they're a JSON string
     if isinstance(arguments, str):
@@ -154,61 +204,49 @@ async def execute_calculator_call(tool_call: Dict[str, Any]) -> Dict[str, Any]:
             arguments = json.loads(arguments)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse arguments as JSON: {arguments}")
-            return {
-                "role": "tool",
-                "content": f"Error: Invalid JSON arguments: {str(e)}",
-                "tool_call_id": tool_call_id
-            }
+            return _create_tool_result(
+                tool_call_id,
+                f"Error: Invalid JSON arguments: {str(e)}"
+            )
 
     # Check if function exists
     if function_name not in CALCULATOR_TOOLS:
         logger.warning(f"Unknown calculator function: {function_name}")
-        return {
-            "role": "tool",
-            "content": f"Error: Unknown function '{function_name}'. Available: {list(CALCULATOR_TOOLS.keys())}",
-            "tool_call_id": tool_call_id
-        }
+        return _create_tool_result(
+            tool_call_id,
+            f"Error: Unknown function '{function_name}'. Available: {list(CALCULATOR_TOOLS.keys())}"
+        )
 
     # Execute tool
     try:
         logger.info(f"Executing {function_name} with arguments {arguments}")
         result = await CALCULATOR_TOOLS[function_name](**arguments)
 
-        return {
-            "role": "tool",
-            "content": str(result),
-            "tool_call_id": tool_call_id
-        }
+        return _create_tool_result(tool_call_id, _serialize_result(result))
 
     except TypeError as e:
         # Invalid arguments for function
         logger.error(f"Invalid arguments for {function_name}: {arguments} - {e}")
-        return {
-            "role": "tool",
-            "content": f"Error: Invalid arguments for {function_name}: {str(e)}",
-            "tool_call_id": tool_call_id
-        }
+        return _create_tool_result(
+            tool_call_id,
+            f"Error: Invalid arguments for {function_name}: {str(e)}"
+        )
 
     except ValueError as e:
         # Calculation error (e.g., division by zero)
         logger.error(f"Calculation error in {function_name}: {e}")
-        return {
-            "role": "tool",
-            "content": f"Error: {str(e)}",
-            "tool_call_id": tool_call_id
-        }
+        return _create_tool_result(tool_call_id, f"Error: {str(e)}")
 
     except Exception as e:
-        # Unexpected error
+        # Unexpected error - don't expose internal details
         logger.exception(f"Unexpected error executing {function_name}")
-        return {
-            "role": "tool",
-            "content": f"Error: Unexpected error: {str(e)}",
-            "tool_call_id": tool_call_id
-        }
+        return _create_tool_result(
+            tool_call_id,
+            "Error: Tool execution failed"
+        )
 
 
-async def execute_calculator_calls(tool_calls: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+async def execute_calculator_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     """Execute multiple calculator tool calls concurrently.
 
     Args:

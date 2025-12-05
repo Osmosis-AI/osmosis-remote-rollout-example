@@ -15,14 +15,14 @@ import asyncio
 import logging
 import os
 import time
-from typing import Optional
 from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Optional
 
+import httpx
 from cachetools import LRUCache
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import ValidationError
 from transformers import AutoTokenizer
-import httpx
 
 from rollout_server.schemas import (
     RolloutRequest,
@@ -33,6 +33,19 @@ from rollout_server.schemas import (
 )
 from rollout_server.session import RolloutSession
 from rollout_server.tools.calculator import execute_calculator_calls
+
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+# Maximum tokens limit for sampling params
+MAX_TOKENS_LIMIT = 32768
+
+# Default sampling parameter values
+DEFAULT_TEMPERATURE = 1.0
+DEFAULT_TOP_P = 1.0
+DEFAULT_MAX_TOKENS = 512
 
 
 # =============================================================================
@@ -52,6 +65,16 @@ class TokenizerLoadError(RolloutError):
 
 class ToolExecutionError(RolloutError):
     """Error executing tools."""
+    pass
+
+
+class RateLimitExceededError(RolloutError):
+    """Too many concurrent rollouts."""
+    pass
+
+
+class RolloutTimeoutError(RolloutError):
+    """Rollout exceeded time limit."""
     pass
 
 # Configure module-specific logger (avoid global basicConfig conflicts)
@@ -77,6 +100,12 @@ HTTP_CLIENT_TIMEOUT = float(os.getenv("HTTP_CLIENT_TIMEOUT", "300.0"))
 # Default False for security; set to "true" only for trusted model sources
 TOKENIZER_TRUST_REMOTE_CODE = os.getenv("TOKENIZER_TRUST_REMOTE_CODE", "false").lower() == "true"
 
+# Rate limiting: max concurrent rollouts per server instance
+MAX_CONCURRENT_ROLLOUTS = int(os.getenv("MAX_CONCURRENT_ROLLOUTS", "100"))
+
+# Rollout timeout in seconds (total time for entire rollout, not per-request)
+ROLLOUT_TIMEOUT_SECONDS = float(os.getenv("ROLLOUT_TIMEOUT_SECONDS", "600.0"))
+
 
 # =============================================================================
 # Application State
@@ -93,7 +122,20 @@ class AppState:
         # LRU cache with configurable size (~1-2GB per tokenizer)
         # Async-safe lock for concurrent FastAPI requests
         self._tokenizer_cache_lock = asyncio.Lock()
-        self.tokenizer_cache = LRUCache(maxsize=TOKENIZER_CACHE_SIZE)
+        self.tokenizer_cache: LRUCache = LRUCache(maxsize=TOKENIZER_CACHE_SIZE)
+
+        # Semaphore for rate limiting concurrent rollouts
+        self._rollout_semaphore: Optional[asyncio.Semaphore] = None
+
+    @property
+    def rollout_semaphore(self) -> asyncio.Semaphore:
+        """Lazy initialization of rollout semaphore.
+
+        Must be created in async context (after event loop is running).
+        """
+        if self._rollout_semaphore is None:
+            self._rollout_semaphore = asyncio.Semaphore(MAX_CONCURRENT_ROLLOUTS)
+        return self._rollout_semaphore
 
 
 app_state = AppState()
@@ -192,7 +234,7 @@ def load_tokenizer(tokenizer_name: str, tokenizer_revision: Optional[str] = None
     return tokenizer
 
 
-def parse_tool_calls(message: dict) -> list:
+def parse_tool_calls(message: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Parse tool calls from assistant message.
 
     Args:
@@ -234,6 +276,11 @@ async def handle_rollout(request: RolloutRequest) -> RolloutResponse:
     Uses RolloutSession to ensure CORRECT response_mask calculation for
     multi-turn conversations with tools.
 
+    Features:
+    - Rate limiting via semaphore (MAX_CONCURRENT_ROLLOUTS)
+    - Overall rollout timeout (ROLLOUT_TIMEOUT_SECONDS)
+    - Per-request HTTP timeout (HTTP_CLIENT_TIMEOUT)
+
     Args:
         request: RolloutRequest with server_url, messages, sampling_params
 
@@ -247,6 +294,36 @@ async def handle_rollout(request: RolloutRequest) -> RolloutResponse:
     rollout_id = request.rollout_id
     logger.info(f"[{rollout_id}] Received rollout request: max_turns={request.max_turns}")
 
+    # Wrap entire rollout in semaphore (rate limiting) and timeout
+    try:
+        async with asyncio.timeout(ROLLOUT_TIMEOUT_SECONDS):
+            return await _execute_rollout(request)
+    except TimeoutError:
+        logger.error(f"[{rollout_id}] Rollout timeout after {ROLLOUT_TIMEOUT_SECONDS}s")
+        return RolloutResponse(
+            rollout_id=rollout_id,
+            status=RolloutStatus.ERROR,
+            error_message=f"Rollout timeout exceeded ({ROLLOUT_TIMEOUT_SECONDS}s)",
+            final_messages=[]
+        )
+
+
+async def _execute_rollout(request: RolloutRequest) -> RolloutResponse:
+    """Internal function to execute rollout with rate limiting.
+
+    Separated from handle_rollout to allow clean timeout handling.
+    """
+    rollout_id = request.rollout_id
+
+    # Rate limiting via semaphore
+    async with app_state.rollout_semaphore:
+        logger.debug(f"[{rollout_id}] Acquired rollout semaphore")
+        return await _execute_rollout_inner(request)
+
+
+async def _execute_rollout_inner(request: RolloutRequest) -> RolloutResponse:
+    """Core rollout execution logic."""
+    rollout_id = request.rollout_id
     session = None  # Initialize for cleanup in finally block
 
     # Initialize metrics tracking
@@ -261,7 +338,8 @@ async def handle_rollout(request: RolloutRequest) -> RolloutResponse:
     try:
         # Load tokenizer (MUST match trainer's tokenizer!)
         # Use LRU cache to avoid reloading tokenizers on every request
-        # Double-checked locking pattern with async lock for thread safety
+        # CRITICAL: Always access LRUCache within the lock to avoid race conditions
+        # (LRUCache is not thread-safe; even reads modify internal LRU order)
         try:
             if request.tokenizer_name:
                 cache_key = (request.tokenizer_name, request.tokenizer_revision)
@@ -270,30 +348,24 @@ async def handle_rollout(request: RolloutRequest) -> RolloutResponse:
                 cache_key = ("default", None)
                 logger.warning(f"[{rollout_id}] No tokenizer specified, using default Qwen3-8B")
 
-            # First check without lock (fast path for cache hit)
-            if cache_key in app_state.tokenizer_cache:
-                logger.debug(f"[{rollout_id}] Using cached tokenizer: {cache_key[0]}")
-                tokenizer = app_state.tokenizer_cache[cache_key]
-            else:
-                # Acquire async lock for cache miss (slow path)
-                async with app_state._tokenizer_cache_lock:
-                    # Double-check after acquiring lock
-                    if cache_key not in app_state.tokenizer_cache:
-                        logger.info(f"[{rollout_id}] Loading tokenizer: {cache_key[0]}")
-                        # Load tokenizer in thread pool to avoid blocking event loop
-                        tokenizer_name = cache_key[0] if cache_key[0] != "default" else "Qwen/Qwen3-8B"
-                        tokenizer = await asyncio.to_thread(
-                            load_tokenizer, tokenizer_name, cache_key[1]
-                        )
-                        # Store in LRU cache (automatic eviction when full)
-                        app_state.tokenizer_cache[cache_key] = tokenizer
-                        logger.info(
-                            f"[{rollout_id}] Cached tokenizer. "
-                            f"Cache size: {len(app_state.tokenizer_cache)}/{app_state.tokenizer_cache.maxsize}"
-                        )
-                    else:
-                        logger.debug(f"[{rollout_id}] Using cached tokenizer (after lock): {cache_key[0]}")
-                        tokenizer = app_state.tokenizer_cache[cache_key]
+            # Always acquire lock for cache access (LRUCache is not thread-safe)
+            async with app_state._tokenizer_cache_lock:
+                if cache_key in app_state.tokenizer_cache:
+                    logger.debug(f"[{rollout_id}] Using cached tokenizer: {cache_key[0]}")
+                    tokenizer = app_state.tokenizer_cache[cache_key]
+                else:
+                    logger.info(f"[{rollout_id}] Loading tokenizer: {cache_key[0]}")
+                    # Load tokenizer in thread pool to avoid blocking event loop
+                    tokenizer_name = cache_key[0] if cache_key[0] != "default" else "Qwen/Qwen3-8B"
+                    tokenizer = await asyncio.to_thread(
+                        load_tokenizer, tokenizer_name, cache_key[1]
+                    )
+                    # Store in LRU cache (automatic eviction when full)
+                    app_state.tokenizer_cache[cache_key] = tokenizer
+                    logger.info(
+                        f"[{rollout_id}] Cached tokenizer. "
+                        f"Cache size: {len(app_state.tokenizer_cache)}/{app_state.tokenizer_cache.maxsize}"
+                    )
 
         except Exception as e:
             logger.error(f"[{rollout_id}] Failed to load tokenizer: {e}")

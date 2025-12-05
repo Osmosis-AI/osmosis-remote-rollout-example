@@ -9,6 +9,8 @@ Public API:
 - Schemas: Message, RolloutRequest, RolloutResponse, etc.
 """
 
+from importlib.metadata import version, PackageNotFoundError
+
 from rollout_server.schemas import (
     CompletionsChoice,
     CompletionsRequest,
@@ -19,6 +21,8 @@ from rollout_server.schemas import (
     RolloutResponse,
     RolloutStatus,
     SamplingParams,
+    ToolCall,
+    ToolCallFunction,
 )
 from rollout_server.server import app
 from rollout_server.session import RolloutSession
@@ -38,7 +42,14 @@ __all__ = [
     "RolloutResponse",
     "RolloutStatus",
     "SamplingParams",
+    "ToolCall",
+    "ToolCallFunction",
 ]
 
-__version__ = "0.1.0"
+# Single source of version truth: read from pyproject.toml via importlib.metadata
+try:
+    __version__ = version("rollout-server")
+except PackageNotFoundError:
+    # Package is not installed (e.g., running from source)
+    __version__ = "0.1.0-dev"
 

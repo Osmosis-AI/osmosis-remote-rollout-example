@@ -207,6 +207,32 @@ class TestServerUrlValidation:
             )
         assert "HTTP/HTTPS URL" in str(exc_info.value)
 
+    def test_localhost_url_accepted(self):
+        """Test that localhost URLs are accepted (internal training infrastructure)."""
+        request = RolloutRequest(
+            rollout_id="test",
+            server_url="http://localhost:8081",
+            messages=[Message(role="user", content="Hello")],
+            sampling_params=SamplingParams(),
+        )
+        assert request.server_url == "http://localhost:8081"
+
+    def test_private_ip_accepted(self):
+        """Test that private IP ranges are accepted (trainers run on private networks)."""
+        private_ips = [
+            ("http://10.0.0.1:8081", "http://10.0.0.1:8081"),
+            ("http://192.168.1.1:8081", "http://192.168.1.1:8081"),
+            ("http://172.16.0.1:8081", "http://172.16.0.1:8081"),
+        ]
+        for url, expected in private_ips:
+            request = RolloutRequest(
+                rollout_id="test",
+                server_url=url,
+                messages=[Message(role="user", content="Hello")],
+                sampling_params=SamplingParams(),
+            )
+            assert request.server_url == expected
+
 
 class TestMessagesValidation:
     """Test messages validation."""
@@ -222,6 +248,74 @@ class TestMessagesValidation:
             )
         # Should fail min_length=1 validation
         assert "at least 1" in str(exc_info.value).lower() or "min" in str(exc_info.value).lower()
+
+
+class TestMessageRoleValidation:
+    """Test Message role validation."""
+
+    def test_valid_roles_accepted(self):
+        """Test that all valid roles are accepted."""
+        valid_roles = ["system", "user", "assistant", "tool", "function"]
+        for role in valid_roles:
+            msg = Message(role=role, content="test")
+            assert msg.role == role
+
+    def test_invalid_role_rejected(self):
+        """Test that invalid roles are rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            Message(role="invalid_role", content="test")
+        assert "Invalid role" in str(exc_info.value)
+
+    def test_empty_role_rejected(self):
+        """Test that empty role is rejected."""
+        with pytest.raises(ValidationError):
+            Message(role="", content="test")
+
+    def test_message_with_tool_calls(self):
+        """Test Message with tool_calls structure."""
+        msg = Message(
+            role="assistant",
+            content="Let me calculate that.",
+            tool_calls=[
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {
+                        "name": "add",
+                        "arguments": '{"a": 1, "b": 2}'
+                    }
+                }
+            ]
+        )
+        assert msg.role == "assistant"
+        assert len(msg.tool_calls) == 1
+
+    def test_tool_message_with_tool_call_id(self):
+        """Test tool message with tool_call_id."""
+        msg = Message(
+            role="tool",
+            content="3",
+            tool_call_id="call_123"
+        )
+        assert msg.role == "tool"
+        assert msg.tool_call_id == "call_123"
+
+    def test_message_content_can_be_none(self):
+        """Test that content can be None (for some assistant messages)."""
+        msg = Message(role="assistant", content=None)
+        assert msg.content is None
+
+    def test_message_content_can_be_list(self):
+        """Test that content can be a list (multimodal content)."""
+        msg = Message(
+            role="user",
+            content=[
+                {"type": "text", "text": "What's in this image?"},
+                {"type": "image_url", "image_url": {"url": "https://example.com/image.jpg"}}
+            ]
+        )
+        assert isinstance(msg.content, list)
+        assert len(msg.content) == 2
 
 
 class TestCompletionsRequestResponseMask:

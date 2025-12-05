@@ -4,15 +4,46 @@ These schemas define the public API contract between RolloutServer and the train
 Based on the Remote Rollout Protocol specification in docs/rollout_server.md.
 """
 
+import logging
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+# Valid message roles
+VALID_MESSAGE_ROLES = {"system", "user", "assistant", "tool", "function"}
+
+# Maximum tokens limit for sampling params
+MAX_TOKENS_LIMIT = 32768
+
 
 
 # =============================================================================
 # Message and Chat Schemas
 # =============================================================================
+
+
+class ToolCallFunction(BaseModel):
+    """Function call details within a tool call."""
+
+    name: str = Field(..., min_length=1, max_length=256)
+    arguments: Union[str, Dict[str, Any]] = Field(...)
+
+
+class ToolCall(BaseModel):
+    """Tool call structure for assistant messages."""
+
+    id: str = Field(..., min_length=1, max_length=256)
+    type: Literal["function"] = "function"
+    function: ToolCallFunction
 
 
 class Message(BaseModel):
@@ -21,13 +52,23 @@ class Message(BaseModel):
     Specification: docs/rollout_server.md Section 3.1, 3.2
     """
 
-    role: str  # system, user, assistant, tool
-    content: Union[str, List[Dict[str, Any]]]
-    tool_calls: Optional[List[Dict[str, Any]]] = None
-    tool_call_id: Optional[str] = None
+    role: str = Field(..., description="Message role: system, user, assistant, tool")
+    content: Union[str, List[Dict[str, Any]], None] = None
+    tool_calls: Optional[List[ToolCall]] = None
+    tool_call_id: Optional[str] = Field(None, max_length=256)
 
     # Allow optional keys like `name` or vendor-specific fields
     model_config = ConfigDict(extra="allow")
+
+    @field_validator('role')
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        """Validate role is one of the allowed values."""
+        if v not in VALID_MESSAGE_ROLES:
+            raise ValueError(
+                f"Invalid role '{v}'. Must be one of: {sorted(VALID_MESSAGE_ROLES)}"
+            )
+        return v
 
 
 # =============================================================================
@@ -56,8 +97,8 @@ class SamplingParams(BaseModel):
     max_tokens: int = Field(
         default=512,
         ge=1,
-        le=32768,
-        description="Maximum tokens to generate (1-32768)"
+        le=MAX_TOKENS_LIMIT,
+        description=f"Maximum tokens to generate (1-{MAX_TOKENS_LIMIT})"
     )
     stop: Optional[List[str]] = None
     logprobs: bool = True
@@ -151,11 +192,17 @@ class RolloutRequest(BaseModel):
     @field_validator('server_url')
     @classmethod
     def validate_server_url(cls, v: str) -> str:
-        """Validate server_url is a valid HTTP/HTTPS URL."""
+        """Validate server_url is a valid HTTP/HTTPS URL.
+
+        Note: This server is designed for internal training infrastructure use.
+        The server_url is provided by trusted traingate components, not external users.
+        Private/internal IPs are allowed since trainers typically run on private networks.
+        """
         if not v.startswith(('http://', 'https://')):
             raise ValueError(
                 f"server_url must be an HTTP/HTTPS URL, got: {v}"
             )
+
         # Remove trailing slash for consistency
         return v.rstrip('/')
 
@@ -194,6 +241,10 @@ class CompletionsChoice(BaseModel):
     finish_reason: str = "stop"
 
 
+# Maximum response_mask length before warning
+MAX_RESPONSE_MASK_LENGTH = 100000
+
+
 class CompletionsRequest(BaseModel):
     """OpenAI-compatible completions request with rollout_id extension.
 
@@ -226,7 +277,7 @@ class CompletionsRequest(BaseModel):
 
     temperature: float = Field(default=1.0, ge=0.0, le=2.0)
     top_p: float = Field(default=1.0, ge=0.0, le=1.0)
-    max_tokens: int = Field(default=512, ge=1, le=32768)
+    max_tokens: int = Field(default=512, ge=1, le=MAX_TOKENS_LIMIT)
     stop: Optional[List[str]] = None
     logprobs: bool = True
 
@@ -254,9 +305,8 @@ class CompletionsRequest(BaseModel):
             )
 
         # Warn if mask is very large (possible DoS)
-        if len(v) > 100000:
-            import logging
-            logging.getLogger(__name__).warning(
+        if len(v) > MAX_RESPONSE_MASK_LENGTH:
+            logger.warning(
                 f"response_mask is very large ({len(v)} tokens), "
                 f"possible performance issue or DoS attempt"
             )

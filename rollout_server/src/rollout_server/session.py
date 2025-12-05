@@ -21,7 +21,8 @@ from __future__ import annotations
 
 import logging
 import warnings
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from types import TracebackType
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type
 
 import httpx
 
@@ -91,7 +92,12 @@ class RolloutSession:
         """Async context manager entry."""
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType]
+    ) -> None:
         """Async context manager exit - ensures cleanup."""
         await self.close()
 
