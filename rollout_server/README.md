@@ -317,7 +317,7 @@ uv run python -m tests.test_with_mock_trainer
     "temperature": 0.7,
     "top_p": 0.9,
     "max_tokens": 512,
-    "logprobs": 1
+    "logprobs": true
   },
   "tokenizer_name": "Qwen/Qwen3-8B",
   "max_turns": 10,
@@ -352,7 +352,7 @@ curl -X POST http://localhost:9000/rollout \
       "temperature": 0.7,
       "top_p": 0.9,
       "max_tokens": 512,
-      "logprobs": 1
+      "logprobs": true
     },
     "tokenizer_name": "Qwen/Qwen3-8B",
     "max_turns": 10,
@@ -481,7 +481,7 @@ For more detailed testing information, see:
         "temperature": 0.7,
         "top_p": 0.9,
         "max_tokens": 512,
-        "logprobs": 1
+        "logprobs": true
     },
     "tokenizer_name": "Qwen/Qwen3-8B",
     "tokenizer_revision": "main",
@@ -593,11 +593,11 @@ osmosis-remote-rollout-example/
 # Start server
 ./scripts/start_server.sh
 
-# Run tests
-./scripts/run_tests.sh
+# Run tests directly with pytest
+uv run pytest
 
-# Validate response_mask
-./scripts/validate_response_mask.py
+# Run specific tests
+uv run pytest tests/integration/
 ```
 
 ## License

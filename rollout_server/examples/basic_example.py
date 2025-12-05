@@ -15,7 +15,7 @@ async def basic_example():
     # Create rollout request
     rollout_request = {
         "rollout_id": str(uuid.uuid4()),
-        "server_url": "http://mock-trainer:8081",  # Mock trainer endpoint
+        "server_url": "http://localhost:9001",  # Mock trainer endpoint
         "messages": [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "Hello! How are you today?"}
@@ -24,7 +24,7 @@ async def basic_example():
             "temperature": 0.7,
             "top_p": 0.9,
             "max_tokens": 512,
-            "logprobs": 1
+            "logprobs": True
         },
         "tokenizer_name": "Qwen/Qwen3-8B",
         "tokenizer_revision": "main",

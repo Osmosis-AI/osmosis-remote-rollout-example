@@ -112,7 +112,7 @@ uv run python -m rollout_server.tests.test_with_mock_trainer
     "temperature": 0.7,
     "top_p": 0.9,
     "max_tokens": 512,
-    "logprobs": 1
+    "logprobs": true
   },
   "tokenizer_name": "Qwen/Qwen3-8B",
   "tokenizer_revision": "main",
@@ -145,10 +145,11 @@ curl -X POST http://localhost:9000/rollout \
       "temperature": 0.7,
       "top_p": 0.9,
       "max_tokens": 512,
-      "logprobs": 1
+      "logprobs": true
     },
     "tokenizer_name": "Qwen/Qwen3-8B",
-    "max_turns": 10
+    "max_turns": 10,
+    "max_tokens_total": 8192
   }'
 ```
 

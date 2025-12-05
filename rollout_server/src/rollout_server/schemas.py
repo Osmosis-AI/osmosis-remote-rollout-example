@@ -45,7 +45,7 @@ class SamplingParams(BaseModel):
     top_p: float = 1.0
     max_tokens: int = 512
     stop: Optional[List[str]] = None
-    logprobs: Optional[int] = 1
+    logprobs: bool = True
 
 
 # =============================================================================

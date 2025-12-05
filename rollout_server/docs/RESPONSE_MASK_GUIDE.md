@@ -468,6 +468,6 @@ async def test_mask_length_matches_tokens():
 
 ## References
 
-- **TrainGate Remote Rollout Design**: `/Users/brian/Osmosis-AI/osmosis-traingate/docs/remote_rollout_design.md`
-- **RolloutServer Implementation Guide**: `/Users/brian/Osmosis-AI/osmosis-traingate/docs/rollout_server.md`
+- **TrainGate Remote Rollout Design**: See `docs/remote_rollout_design.md` in the [TrainGate repository](https://github.com/Osmosis-AI/traingate)
+- **RolloutServer Implementation Guide**: See `docs/rollout_server.md` in the [TrainGate repository](https://github.com/Osmosis-AI/traingate)
 - **Reference Implementation**: `src/rollout_server/session.py`

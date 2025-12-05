@@ -178,7 +178,7 @@ This is the #1 source of bugs in remote rollout implementations. The reference i
 
 ```bash
 # Install dependencies
-cd /Users/brian/Osmosis-AI/osmosis-remote-rollout-example/rollout_server
+cd rollout_server  # From project root
 uv sync
 
 # Start server

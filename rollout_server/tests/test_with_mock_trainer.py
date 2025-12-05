@@ -30,7 +30,7 @@ EXAMPLE_PAYLOAD = {
         "temperature": 0.7,
         "top_p": 0.9,
         "max_tokens": 512,
-        "logprobs": 1
+        "logprobs": True
     },
     "tokenizer_name": "Qwen/Qwen3-8B",
     "tokenizer_revision": "main",
