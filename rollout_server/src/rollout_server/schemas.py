@@ -7,7 +7,7 @@ Based on the Remote Rollout Protocol specification in docs/rollout_server.md.
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # =============================================================================
@@ -41,9 +41,24 @@ class SamplingParams(BaseModel):
     Specification: docs/rollout_server.md Section 3.1
     """
 
-    temperature: float = 1.0
-    top_p: float = 1.0
-    max_tokens: int = 512
+    temperature: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature (0.0-2.0)"
+    )
+    top_p: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Nucleus sampling top_p (0.0-1.0)"
+    )
+    max_tokens: int = Field(
+        default=512,
+        ge=1,
+        le=32768,
+        description="Maximum tokens to generate (1-32768)"
+    )
     stop: Optional[List[str]] = None
     logprobs: bool = True
 
@@ -91,13 +106,24 @@ class RolloutRequest(BaseModel):
     Specification: docs/rollout_server.md Section 3.1
     """
 
-    rollout_id: str  # Unique rollout identifier (UUID)
-    server_url: str  # Trainer's /v1/completions endpoint URL
-    messages: List[Message]  # Initial conversation messages
+    rollout_id: str = Field(..., description="Unique rollout identifier (UUID format)")
+    server_url: str = Field(..., description="Trainer's /v1/completions endpoint URL")
+    messages: List[Message] = Field(..., min_length=1)  # Initial conversation messages (at least 1)
     sampling_params: SamplingParams
     tool_server_url: Optional[str] = None
-    max_turns: int = 10
-    max_tokens_total: int = 8192
+
+    max_turns: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Maximum agent loop iterations (1-100)"
+    )
+    max_tokens_total: int = Field(
+        default=8192,
+        ge=1,
+        le=1_000_000,
+        description="Maximum total tokens (1-1,000,000)"
+    )
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
     # Callback authentication
@@ -106,6 +132,32 @@ class RolloutRequest(BaseModel):
     # Tokenizer information for validation
     tokenizer_name: Optional[str] = None  # e.g., "Qwen/Qwen3-8B"
     tokenizer_revision: Optional[str] = None  # e.g., "main" or git commit hash
+
+    @field_validator('rollout_id')
+    @classmethod
+    def validate_rollout_id(cls, v: str) -> str:
+        """Validate rollout_id is non-empty.
+
+        Note: We accept any non-empty string format to be compatible with traingate,
+        which uses formats like "{job_id}-step{step}-idx{index}-{uuid[:8]}".
+        """
+        if not v or not v.strip():
+            raise ValueError("rollout_id must be non-empty")
+        # Limit length to prevent DoS
+        if len(v) > 256:
+            raise ValueError("rollout_id must be at most 256 characters")
+        return v
+
+    @field_validator('server_url')
+    @classmethod
+    def validate_server_url(cls, v: str) -> str:
+        """Validate server_url is a valid HTTP/HTTPS URL."""
+        if not v.startswith(('http://', 'https://')):
+            raise ValueError(
+                f"server_url must be an HTTP/HTTPS URL, got: {v}"
+            )
+        # Remove trailing slash for consistency
+        return v.rstrip('/')
 
 
 class RolloutResponse(BaseModel):
@@ -171,16 +223,45 @@ class CompletionsRequest(BaseModel):
     model: str = "default"  # Ignored - uses loaded model
     messages: List[Message]
     rollout_id: str  # Custom extension for session routing
-    temperature: float = 1.0
-    top_p: float = 1.0
-    max_tokens: int = 512
+
+    temperature: float = Field(default=1.0, ge=0.0, le=2.0)
+    top_p: float = Field(default=1.0, ge=0.0, le=1.0)
+    max_tokens: int = Field(default=512, ge=1, le=32768)
     stop: Optional[List[str]] = None
     logprobs: bool = True
 
     # CRITICAL: Explicit mask for tokens added since last LLM call
     # Must be provided by RolloutServer for turns after the first turn
     # See class docstring for detailed requirements
-    response_mask: Optional[List[int]] = None
+    response_mask: Optional[List[int]] = Field(
+        default=None,
+        description="Mask for tokens added since last LLM call (values must be 0 or 1)"
+    )
+
+    @field_validator('response_mask')
+    @classmethod
+    def validate_response_mask(cls, v: Optional[List[int]]) -> Optional[List[int]]:
+        """Validate response_mask contains only 0 or 1."""
+        if v is None:
+            return None
+
+        # Check all values are 0 or 1
+        invalid_values = [x for x in v if x not in (0, 1)]
+        if invalid_values:
+            raise ValueError(
+                f"response_mask must contain only 0 or 1, "
+                f"found invalid values: {set(invalid_values)}"
+            )
+
+        # Warn if mask is very large (possible DoS)
+        if len(v) > 100000:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"response_mask is very large ({len(v)} tokens), "
+                f"possible performance issue or DoS attempt"
+            )
+
+        return v
 
 
 class CompletionsResponse(BaseModel):

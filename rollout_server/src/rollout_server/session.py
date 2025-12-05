@@ -17,11 +17,18 @@ Key Pattern (from docs/rollout_server.md:305-350):
 Reference: docs/rollout_server.md Section 4 (Response Mask Management)
 """
 
-import httpx
-from typing import List, Dict, Any, Optional
+from __future__ import annotations
+
 import logging
+import warnings
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+import httpx
 
 from rollout_server.schemas import CompletionsRequest, CompletionsResponse, Message
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizerBase
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +58,14 @@ class RolloutSession:
     Reference: docs/rollout_server.md Section 4.1-4.3
     """
 
-    def __init__(self, rollout_id: str, tokenizer, server_url: str, http_client: Optional[httpx.AsyncClient] = None, callback_api_key: Optional[str] = None):
+    def __init__(
+        self,
+        rollout_id: str,
+        tokenizer: "PreTrainedTokenizerBase",
+        server_url: str,
+        http_client: Optional[httpx.AsyncClient] = None,
+        callback_api_key: Optional[str] = None
+    ) -> None:
         """Initialize a rollout session.
 
         Args:
@@ -72,6 +86,14 @@ class RolloutSession:
         self.turn_count = 0
 
         logger.info(f"[{rollout_id}] Created RolloutSession with server_url={server_url}")
+
+    async def __aenter__(self) -> "RolloutSession":
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit - ensures cleanup."""
+        await self.close()
 
     async def call_llm(self, sampling_params: dict) -> CompletionsResponse:
         """Call LLM with CORRECT response_mask calculation.
@@ -106,6 +128,18 @@ class RolloutSession:
         if self.last_prompt_length > 0:
             # Tokens added between calls = tool outputs from previous turn
             num_new_tokens = current_prompt_length - self.last_prompt_length
+
+            # CRITICAL: Negative token count indicates serious error
+            if num_new_tokens < 0:
+                raise ValueError(
+                    f"[{self.rollout_id}] Negative token count detected: "
+                    f"current_prompt_length={current_prompt_length}, "
+                    f"last_prompt_length={self.last_prompt_length}. "
+                    f"This indicates message deletion, context truncation, or tokenizer mismatch. "
+                    f"Context truncation is not supported by RolloutSession - "
+                    f"use explicit mask tracking instead."
+                )
+
             if num_new_tokens > 0:
                 response_mask = [0] * num_new_tokens  # Tool outputs = mask 0
                 logger.debug(
@@ -113,7 +147,12 @@ class RolloutSession:
                     f"Calculated response_mask for {num_new_tokens} tool output tokens"
                 )
             else:
+                # num_new_tokens == 0: No new tokens added (unusual but valid)
                 response_mask = None
+                logger.debug(
+                    f"[{self.rollout_id}] Turn {self.turn_count + 1}: "
+                    f"No new tokens added since last call (num_new_tokens=0)"
+                )
         else:
             # First turn - no tool outputs yet
             response_mask = None
@@ -193,66 +232,43 @@ class RolloutSession:
 
 
 # =============================================================================
-# Alternative Implementation: Explicit Token Tracking
+# DEPRECATED: Alternative Implementation
 # =============================================================================
 
 
 class RolloutSessionExplicit:
-    """Alternative implementation with explicit token tracking.
+    """DEPRECATED: Alternative implementation with explicit token tracking.
 
-    This is an alternative pattern from docs/rollout_server.md Section 4.3
-    where you explicitly track tool output token IDs instead of relying on
-    tokenizer alignment.
+    ⚠️  WARNING: This class is deprecated due to incorrect token counting logic.
+    ⚠️  DO NOT USE. Use RolloutSession instead.
 
-    Trade-off: More explicit control, but requires careful token management
-    and perfect tokenizer alignment.
+    KNOWN BUGS:
+    - Uses tokenizer.encode() instead of apply_chat_template()
+    - Token counts will not match chat format, causing mask length mismatches
+    - Will corrupt training data if used in production
 
-    Reference: docs/rollout_server.md Section 4.3
+    This class is kept for reference only and will be removed in a future version.
+    If you need explicit token tracking, implement it correctly using
+    apply_chat_template() as shown in RolloutSession.
+
+    Reason for deprecation:
+    The original implementation in append_tool_outputs() used:
+        token_ids = self.tokenizer.encode(content, add_special_tokens=False)
+    This does not account for chat template formatting, leading to incorrect
+    token counts and response_mask length mismatches.
+
+    Reference: See RolloutSession for correct implementation pattern.
     """
 
-    def __init__(self, rollout_id: str, tokenizer, server_url: str, http_client: Optional[httpx.AsyncClient] = None):
-        self.rollout_id = rollout_id
-        self.tokenizer = tokenizer
-        self.server_url = server_url
-        self._owns_client = http_client is None  # Track if we created the client
-        self.http_client = http_client or httpx.AsyncClient(timeout=300.0)
-        self.messages: List[Dict[str, Any]] = []
-        self.tool_output_token_ids: List[int] = []  # Explicitly tracked
-
-    async def call_llm(self, sampling_params: dict) -> CompletionsResponse:
-        """Call LLM with explicitly tracked tool output tokens."""
-        # Build mask for tool outputs
-        response_mask = [0] * len(self.tool_output_token_ids) if self.tool_output_token_ids else None
-
-        request = CompletionsRequest(
-            rollout_id=self.rollout_id,
-            messages=[Message(**msg) for msg in self.messages],
-            response_mask=response_mask,
-            **sampling_params
+    def __init__(self, *args, **kwargs):
+        """Emit deprecation warning and raise NotImplementedError."""
+        warnings.warn(
+            "RolloutSessionExplicit is deprecated due to token counting bugs. "
+            "Use RolloutSession instead. "
+            "See session.py docstring for details on why this class is unsafe.",
+            DeprecationWarning,
+            stacklevel=2
         )
-
-        response = await self.http_client.post(
-            f"{self.server_url}/v1/completions",
-            json=request.model_dump()
+        raise NotImplementedError(
+            "RolloutSessionExplicit is deprecated. Use RolloutSession instead."
         )
-        response.raise_for_status()
-
-        # Clear tool outputs after sending
-        self.tool_output_token_ids = []
-
-        return CompletionsResponse(**response.json())
-
-    def append_tool_outputs(self, tool_results: List[dict]):
-        """Append tool results and track their token IDs."""
-        self.messages.extend(tool_results)
-
-        # Tokenize tool outputs to get token IDs
-        for result in tool_results:
-            content = result.get("content", "")
-            token_ids = self.tokenizer.encode(content, add_special_tokens=False)
-            self.tool_output_token_ids.extend(token_ids)
-
-    async def close(self):
-        """Close HTTP client only if we created it (not shared)."""
-        if self._owns_client and self.http_client:
-            await self.http_client.aclose()
