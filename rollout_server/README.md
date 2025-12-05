@@ -319,7 +319,7 @@ uv run python -m tests.test_with_mock_trainer
     "max_tokens": 512,
     "logprobs": 1
   },
-  "tokenizer_name": "gpt2",
+  "tokenizer_name": "Qwen/Qwen3-8B",
   "max_turns": 10,
   "max_tokens_total": 8192
 }
@@ -354,7 +354,7 @@ curl -X POST http://localhost:9000/rollout \
       "max_tokens": 512,
       "logprobs": 1
     },
-    "tokenizer_name": "gpt2",
+    "tokenizer_name": "Qwen/Qwen3-8B",
     "max_turns": 10,
     "max_tokens_total": 8192
   }'
