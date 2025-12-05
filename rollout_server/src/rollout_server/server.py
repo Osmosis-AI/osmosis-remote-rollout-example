@@ -106,10 +106,17 @@ def load_tokenizer(tokenizer_name: str, tokenizer_revision: Optional[str] = None
     """
     logger.info(f"Loading tokenizer: {tokenizer_name} (revision={tokenizer_revision})")
 
+    # WARNING: trust_remote_code=True allows arbitrary code execution from the model repository.
+    # This is necessary for some tokenizers (e.g., Qwen) but poses a security risk.
+    # In production environments, consider:
+    # 1. Using only verified/trusted model repositories
+    # 2. Making this configurable via environment variable (default: False)
+    # 3. Running in a sandboxed environment with restricted permissions
+    # 4. Reviewing the model's code before enabling this option
     tokenizer = AutoTokenizer.from_pretrained(
         tokenizer_name,
         revision=tokenizer_revision,
-        trust_remote_code=True
+        trust_remote_code=True  # Required for models like Qwen
     )
 
     # Ensure tokenizer has pad_token (required for batching)

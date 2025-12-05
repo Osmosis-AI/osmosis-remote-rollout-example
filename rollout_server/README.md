@@ -336,16 +336,16 @@ uv run python -m tests.test_with_mock_trainer
 curl -X POST http://localhost:9000/rollout \
   -H "Content-Type: application/json" \
   -d '{
-    "rollout_id": "test-001",
+    "rollout_id": "test-rollout-001",
     "server_url": "http://localhost:9001",
     "messages": [
       {
         "role": "system",
-        "content": "You are a helpful calculator assistant."
+        "content": "You are a helpful calculator assistant with access to calculator tools."
       },
       {
         "role": "user",
-        "content": "Calculate 5 plus 3."
+        "content": "Please calculate 5 plus 3."
       }
     ],
     "sampling_params": {
@@ -364,17 +364,17 @@ curl -X POST http://localhost:9000/rollout \
 
 ```json
 {
-  "rollout_id": "test-001",
+  "rollout_id": "test-rollout-001",
   "status": "COMPLETED",
   "finish_reason": "stop",
   "final_messages": [
     {
       "role": "system",
-      "content": "You are a helpful calculator assistant."
+      "content": "You are a helpful calculator assistant with access to calculator tools."
     },
     {
       "role": "user",
-      "content": "Calculate 5 plus 3."
+      "content": "Please calculate 5 plus 3."
     },
     {
       "role": "assistant",

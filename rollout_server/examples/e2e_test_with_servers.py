@@ -116,7 +116,7 @@ async def test_rollout_server_health(async_client, rollout_server_url):
     if not is_healthy:
         pytest.skip(
             f"Rollout server not available at {rollout_server_url}. "
-            "Start it with: cd rollout_server && python -m rollout_server.server"
+            "Start it with: python -m rollout_server.server"
         )
 
     # If we reach here, server is healthy
