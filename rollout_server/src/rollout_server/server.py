@@ -488,7 +488,7 @@ async def _execute_rollout_inner(request: RolloutRequest) -> RolloutResponse:
 
             except Exception as e:
                 logger.error(f"[{rollout_id}] Tool execution failed: {e}")
-                # Preserve original error message for traingate debugging
+                # Preserve original error message for debugging
                 raise ToolExecutionError(f"Failed to execute tools: {e}") from e
 
             # 6. Append tool outputs (session tracks for next response_mask)
@@ -514,14 +514,14 @@ async def _execute_rollout_inner(request: RolloutRequest) -> RolloutResponse:
         )
 
     except httpx.HTTPStatusError as e:
-        # HTTP error from trainer - categorize for traingate retry logic
+        # HTTP error from trainer - categorize for retry logic
         status_code = e.response.status_code
         logger.error(
             f"[{rollout_id}] HTTP error from trainer: "
             f"{status_code} - {e.response.text}"
         )
 
-        # Categorize error for traingate to determine retry strategy
+        # Categorize error to determine retry strategy
         if status_code == 429:
             error_category = "rate_limited"
             error_message = "Trainer rate limit exceeded (429)"
@@ -592,7 +592,7 @@ async def _execute_rollout_inner(request: RolloutRequest) -> RolloutResponse:
         return RolloutResponse(
             rollout_id=rollout_id,
             status=RolloutStatus.ERROR,
-            error_message=str(e),  # Preserved original error for traingate debugging
+            error_message=str(e),  # Preserved original error for debugging
             final_messages=[],
             extra_fields={"error_category": "tool_error"},
             metrics=RolloutMetrics(
@@ -664,7 +664,7 @@ if __name__ == "__main__":
     import os
     import uvicorn
 
-    # Use environment variable or default to 9000 (avoid conflict with traingate's 8080-8130 range)
+    # Use environment variable or default to 9000
     port = int(os.getenv("ROLLOUT_SERVER_PORT", "9000"))
 
     uvicorn.run(

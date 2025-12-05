@@ -117,10 +117,7 @@ class RolloutStatus(str, Enum):
 
 
 class RolloutMetrics(BaseModel):
-    """Metrics from rollout execution.
-
-    Specification: Aligns with TrainGate's RolloutMetrics schema
-    """
+    """Metrics from rollout execution."""
 
     total_latency_ms: float = 0.0
     llm_latency_ms: float = 0.0
@@ -179,8 +176,8 @@ class RolloutRequest(BaseModel):
     def validate_rollout_id(cls, v: str) -> str:
         """Validate rollout_id is non-empty.
 
-        Note: We accept any non-empty string format to be compatible with traingate,
-        which uses formats like "{job_id}-step{step}-idx{index}-{uuid[:8]}".
+        Note: We accept any non-empty string format to be compatible with various
+        training systems that use formats like "{job_id}-step{step}-idx{index}-{uuid[:8]}".
         """
         if not v or not v.strip():
             raise ValueError("rollout_id must be non-empty")
@@ -195,7 +192,7 @@ class RolloutRequest(BaseModel):
         """Validate server_url is a valid HTTP/HTTPS URL.
 
         Note: This server is designed for internal training infrastructure use.
-        The server_url is provided by trusted traingate components, not external users.
+        The server_url is provided by trusted training components, not external users.
         Private/internal IPs are allowed since trainers typically run on private networks.
         """
         if not v.startswith(('http://', 'https://')):

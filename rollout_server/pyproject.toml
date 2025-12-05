@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rollout-server"
 version = "0.1.0"
-description = "Reference implementation and testing infrastructure for TrainGate remote rollout protocol"
+description = "Reference implementation and testing infrastructure for remote rollout protocol"
 authors = [
     {name = "Osmosis AI", email = "noreply@osmosis.ai"}
 ]

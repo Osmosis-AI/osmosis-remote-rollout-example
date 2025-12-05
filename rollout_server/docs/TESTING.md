@@ -264,7 +264,7 @@ To modify the mock trainer's behavior:
 
 ## Integration with Real Training Cluster
 
-In production, the real training cluster (TrainGate) will:
+In production, the real training cluster will:
 - Send rollout requests to RolloutServer
 - Provide a real `/v1/completions` endpoint backed by vLLM/SGLang
 - Use real LLM inference for generation

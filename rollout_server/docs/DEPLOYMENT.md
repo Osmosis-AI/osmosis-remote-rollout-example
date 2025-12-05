@@ -4,7 +4,7 @@
 
 ## Overview
 
-This guide covers deploying the Remote Rollout Server in production environments alongside TrainGate training infrastructure.
+This guide covers deploying the Remote Rollout Server in production environments.
 
 ## Prerequisites
 
@@ -171,7 +171,7 @@ WantedBy=multi-user.target
 
 | Variable | Default | Production Recommendation | Description |
 |----------|---------|--------------------------|-------------|
-| `ROLLOUT_SERVER_PORT` | `9000` | `9000` | Server port (avoid 8080-8130 used by TrainGate) |
+| `ROLLOUT_SERVER_PORT` | `9000` | `9000` | Server port |
 | `TOKENIZER_CACHE_SIZE` | `5` | `10-20` | Increase for multi-model deployments |
 | `HTTP_CLIENT_TIMEOUT` | `300.0` | `600.0` | Increase for long-running generations |
 | `TOKENIZER_TRUST_REMOTE_CODE` | `true` | `true` | Required for Qwen3 and other models with custom tokenizer code |

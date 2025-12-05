@@ -1,12 +1,12 @@
 # Remote Rollout Server - Reference Implementation
 
-A reference implementation of the TrainGate Remote Rollout Protocol, demonstrating correct `response_mask` handling for multi-turn conversations with tool use.
+A reference implementation of the Remote Rollout Protocol, demonstrating correct `response_mask` handling for multi-turn conversations with tool use.
 
 ## Overview
 
 This package provides:
 1. **Reference implementation** for external developers implementing RolloutServer
-2. **End-to-end testing infrastructure** for traingate's remote rollout system
+2. **End-to-end testing infrastructure** for remote rollout systems
 3. **Protocol compliance examples** based on official documentation
 
 **Critical Focus**: Demonstrates CORRECT `response_mask` handling - the #1 source of bugs and training data corruption in remote rollout implementations.
@@ -48,7 +48,7 @@ This will:
 ```bash
 # From the rollout_server/ directory:
 uv run python -m rollout_server.server
-# Server starts on http://0.0.0.0:9000 (default port, avoids traingate's 8080-8130 range)
+# Server starts on http://0.0.0.0:9000
 
 # Or specify custom port:
 ROLLOUT_SERVER_PORT=9100 uv run python -m rollout_server.server
@@ -629,10 +629,4 @@ Apache 2.0
 
 ## Contributing
 
-See the main traingate repository for contribution guidelines.
-
-## Resources
-
-- **TrainGate Documentation**: https://github.com/Osmosis-AI/osmosis-traingate
-- **Remote Rollout Design**: See `docs/remote_rollout_design.md` in the TrainGate repository
-- **RolloutServer Implementation Guide**: See `docs/rollout_server.md` in the TrainGate repository
+Contributions are welcome! Please open an issue or submit a pull request.

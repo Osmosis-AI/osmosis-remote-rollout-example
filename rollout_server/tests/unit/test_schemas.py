@@ -1,6 +1,6 @@
-"""Unit tests for schemas validation - specifically traingate compatibility.
+"""Unit tests for schemas validation.
 
-These tests verify that the schemas accept traingate's format while still
+These tests verify that the schemas accept various ID formats while still
 providing proper validation.
 """
 
@@ -19,7 +19,7 @@ from rollout_server.schemas import (
 
 
 class TestRolloutIdValidation:
-    """Test rollout_id validation for traingate compatibility."""
+    """Test rollout_id validation for various formats."""
 
     def test_standard_uuid_format(self):
         """Test that standard UUID format is accepted."""
@@ -31,23 +31,23 @@ class TestRolloutIdValidation:
         )
         assert request.rollout_id == "550e8400-e29b-41d4-a716-446655440000"
 
-    def test_traingate_format_with_job_context(self):
-        """Test that traingate's job context format is accepted.
+    def test_job_context_format(self):
+        """Test that job context format is accepted.
 
-        traingate generates rollout_id like: "{job_id}-step{step}-idx{index}-{uuid[:8]}"
+        Example format: "{job_id}-step{step}-idx{index}-{uuid[:8]}"
         """
-        traingate_id = "job123-step0-idx0-abc12345"
+        job_id = "job123-step0-idx0-abc12345"
         request = RolloutRequest(
-            rollout_id=traingate_id,
+            rollout_id=job_id,
             server_url="http://trainer:8081",
             messages=[Message(role="user", content="Hello")],
             sampling_params=SamplingParams(),
         )
-        assert request.rollout_id == traingate_id
+        assert request.rollout_id == job_id
 
-    def test_traingate_format_hex_only(self):
-        """Test that traingate's hex-only format is accepted (no job context)."""
-        # When no job_id is provided, traingate uses uuid4().hex
+    def test_hex_only_format(self):
+        """Test that hex-only format is accepted (no job context)."""
+        # When no job_id is provided, uuid4().hex can be used
         hex_id = "a1b2c3d4e5f67890a1b2c3d4e5f67890"
         request = RolloutRequest(
             rollout_id=hex_id,
@@ -57,8 +57,8 @@ class TestRolloutIdValidation:
         )
         assert request.rollout_id == hex_id
 
-    def test_traingate_complex_job_id(self):
-        """Test traingate format with complex job IDs."""
+    def test_complex_job_id(self):
+        """Test format with complex job IDs."""
         complex_id = "experiment-v2-gpu4x-step100-idx5-deadbeef"
         request = RolloutRequest(
             rollout_id=complex_id,
@@ -115,7 +115,7 @@ class TestRolloutIdValidation:
 
 
 class TestRolloutMetrics:
-    """Test RolloutMetrics structure matches traingate expectations."""
+    """Test RolloutMetrics structure."""
 
     def test_metrics_default_values(self):
         """Test that RolloutMetrics has correct default values."""
