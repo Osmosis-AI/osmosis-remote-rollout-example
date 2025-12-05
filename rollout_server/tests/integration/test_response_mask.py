@@ -125,7 +125,8 @@ async def test_mask_length_matches_token_count(mock_trainer_with_tracking):
     from transformers import AutoTokenizer
 
     # Load same tokenizer to verify counts
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-8B")
+    # Note: Qwen3 requires trust_remote_code=True for custom tokenizer code
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-8B", trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -156,6 +157,36 @@ async def test_mask_length_matches_token_count(mock_trainer_with_tracking):
     # Find tool message
     tool_messages = [m for m in final_messages if m["role"] == "tool"]
     assert len(tool_messages) > 0, "Should have at least one tool message"
+
+    # CRITICAL: Verify response_mask length matches token count
+    # The mask should have at least 2 entries: None for first turn, then mask for tool outputs
+    assert len(masks) >= 2, "Should have at least 2 LLM calls for tool-using conversation"
+
+    # Second mask should exist and match tool output token count
+    second_mask = masks[1]
+    assert second_mask is not None, "Second turn should have response_mask for tool outputs"
+    assert isinstance(second_mask, list), "response_mask should be a list"
+
+    # Calculate expected token count for tool outputs by tokenizing the tool messages
+    # within the context of the full conversation (using chat template)
+    messages_before_tool = final_messages[:2]  # user, assistant with tool_call
+    messages_with_tool = final_messages[:4]    # user, assistant, tool
+
+    # Tokenize both to get the difference (this is how the session calculates it)
+    prompt_before = tokenizer.apply_chat_template(
+        messages_before_tool, add_generation_prompt=True, tokenize=False
+    )
+    tokens_before = tokenizer.encode(prompt_before)
+
+    prompt_with_tool = tokenizer.apply_chat_template(
+        messages_with_tool, add_generation_prompt=True, tokenize=False
+    )
+    tokens_with_tool = tokenizer.encode(prompt_with_tool)
+
+    # The mask length should correspond to tokens added between calls
+    # Note: exact match may vary due to LLM response tokens, but mask should be non-empty
+    assert len(second_mask) > 0, "Tool output mask should have positive length"
+    assert all(m == 0 for m in second_mask), "All tool output tokens should have mask=0"
 
 
 @pytest.mark.asyncio

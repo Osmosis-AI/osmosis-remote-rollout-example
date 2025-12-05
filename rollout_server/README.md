@@ -537,9 +537,11 @@ response = await call_llm(messages)  # Missing response_mask!
 ```
 
 ```python
-# Correct
+# Correct - calculate token diff using chat template (recommended approach)
 messages.extend(tool_results)
-num_tool_tokens = len(tokenize_tool_results(tool_results))
+# The mask is calculated by comparing tokenized lengths before and after tool outputs
+# See RolloutSession.call_llm() for the reference implementation
+num_tool_tokens = current_prompt_length - last_prompt_length
 response_mask = [0] * num_tool_tokens
 response = await call_llm(messages, response_mask=response_mask)  # ✓
 ```

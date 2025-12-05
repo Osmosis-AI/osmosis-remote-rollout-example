@@ -96,18 +96,24 @@ class RolloutSession:
         self.last_prompt_length = 0  # CRITICAL for mask calculation
 
     async def call_llm(self, sampling_params):
-        # 1. Tokenize current messages
-        current_prompt_length = len(tokenize(messages))
+        # 1. Tokenize current messages using chat template
+        current_prompt = self.tokenizer.apply_chat_template(
+            self.messages, add_generation_prompt=True, tokenize=True
+        )
+        current_prompt_length = len(current_prompt)
 
         # 2. Calculate mask for new tokens (tool outputs)
         num_new_tokens = current_prompt_length - self.last_prompt_length
         response_mask = [0] * num_new_tokens if num_new_tokens > 0 else None
 
         # 3. Call trainer with mask
-        response = await call_trainer(response_mask=response_mask)
+        response = await self.http_client.post(
+            f"{self.server_url}/v1/completions",
+            json={"messages": self.messages, "response_mask": response_mask, ...}
+        )
 
         # 4. Update tracking
-        self.last_prompt_length = current_prompt_length + len(response.token_ids)
+        self.last_prompt_length = current_prompt_length + len(response.json()["token_ids"])
 ```
 
 ### 3. Tool Executor (`tools/calculator.py`)

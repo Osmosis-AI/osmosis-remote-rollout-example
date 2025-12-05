@@ -3,17 +3,18 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.Python
 
 # Virtual Environments
+.Python
 .venv/
 venv/
 ENV/
 env/
 .env/
+env.bak/
+venv.bak/
 
 # Distribution / packaging
-.Python
 build/
 develop-eggs/
 dist/
@@ -99,15 +100,6 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -138,7 +130,6 @@ cython_debug/
 *.swp
 *.swo
 *~
-.DS_Store
 
 # Operating System Files
 .DS_Store

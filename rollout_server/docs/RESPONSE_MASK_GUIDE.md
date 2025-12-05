@@ -299,8 +299,9 @@ trainer_tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-8B")
 ✅ **Correct**:
 ```python
 # Use EXACT same tokenizer
+# Note: Qwen3 requires trust_remote_code=True for custom tokenizer code
 tokenizer_name = request["tokenizer_name"]  # From rollout request
-tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
 ```
 
 ### Pitfall 5: Context Truncation Without Explicit Mask

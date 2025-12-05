@@ -11,6 +11,7 @@ For actual testing, use the test suite in tests/.
 """
 
 import asyncio
+import os
 import subprocess
 import sys
 import time
@@ -41,7 +42,7 @@ async def managed_servers():
         print(f"  Starting mock trainer on port {MOCK_TRAINER_PORT}...")
         trainer_proc = subprocess.Popen(
             [sys.executable, "-m", "tests.mocks.mock_trainer"],
-            env={**dict(__import__("os").environ), "MOCK_TRAINER_PORT": str(MOCK_TRAINER_PORT)},
+            env={**os.environ, "MOCK_TRAINER_PORT": str(MOCK_TRAINER_PORT)},
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT
         )
@@ -51,7 +52,7 @@ async def managed_servers():
         print(f"  Starting rollout server on port {ROLLOUT_SERVER_PORT}...")
         rollout_proc = subprocess.Popen(
             [sys.executable, "-m", "rollout_server.server"],
-            env={**dict(__import__("os").environ), "ROLLOUT_SERVER_PORT": str(ROLLOUT_SERVER_PORT)},
+            env={**os.environ, "ROLLOUT_SERVER_PORT": str(ROLLOUT_SERVER_PORT)},
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT
         )

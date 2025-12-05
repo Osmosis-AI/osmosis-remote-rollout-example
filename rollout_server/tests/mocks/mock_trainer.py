@@ -26,7 +26,8 @@ app = FastAPI(title="Mock Trainer Server")
 # Initialize a tokenizer for generating mock token IDs
 # Using Qwen3-8B to match production training environment
 # In real usage, this would match the actual model being trained
-TOKENIZER = AutoTokenizer.from_pretrained("Qwen/Qwen3-8B")
+# Note: Qwen3 requires trust_remote_code=True for custom tokenizer code
+TOKENIZER = AutoTokenizer.from_pretrained("Qwen/Qwen3-8B", trust_remote_code=True)
 if TOKENIZER.pad_token is None:
     TOKENIZER.pad_token = TOKENIZER.eos_token
 

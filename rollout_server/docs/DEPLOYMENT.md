@@ -55,16 +55,20 @@ CMD ["uv", "run", "python", "-m", "rollout_server.server"]
 #### Build and Run
 
 ```bash
+# Generate lock file first (required for --frozen)
+uv lock
+
 # Build image
 docker build -t rollout-server:latest .
 
 # Run container
+# Note: TOKENIZER_TRUST_REMOTE_CODE=true is required for Qwen3 models
 docker run -d \
     --name rollout-server \
     -p 9000:9000 \
     -e TOKENIZER_CACHE_SIZE=10 \
     -e HTTP_CLIENT_TIMEOUT=600 \
-    -e TOKENIZER_TRUST_REMOTE_CODE=false \
+    -e TOKENIZER_TRUST_REMOTE_CODE=true \
     rollout-server:latest
 ```
 
@@ -102,7 +106,7 @@ spec:
         - name: HTTP_CLIENT_TIMEOUT
           value: "600"
         - name: TOKENIZER_TRUST_REMOTE_CODE
-          value: "false"
+          value: "true"  # Required for Qwen3 models
         resources:
           requests:
             memory: "4Gi"
@@ -152,7 +156,7 @@ WorkingDirectory=/opt/rollout-server
 Environment=ROLLOUT_SERVER_PORT=9000
 Environment=TOKENIZER_CACHE_SIZE=10
 Environment=HTTP_CLIENT_TIMEOUT=600
-Environment=TOKENIZER_TRUST_REMOTE_CODE=false
+Environment=TOKENIZER_TRUST_REMOTE_CODE=true
 ExecStart=/opt/rollout-server/.venv/bin/python -m rollout_server.server
 Restart=always
 RestartSec=5
@@ -170,7 +174,7 @@ WantedBy=multi-user.target
 | `ROLLOUT_SERVER_PORT` | `9000` | `9000` | Server port (avoid 8080-8130 used by TrainGate) |
 | `TOKENIZER_CACHE_SIZE` | `5` | `10-20` | Increase for multi-model deployments |
 | `HTTP_CLIENT_TIMEOUT` | `300.0` | `600.0` | Increase for long-running generations |
-| `TOKENIZER_TRUST_REMOTE_CODE` | `false` | `false` | Only enable for trusted models |
+| `TOKENIZER_TRUST_REMOTE_CODE` | `true` | `true` | Required for Qwen3 and other models with custom tokenizer code |
 
 ### Resource Sizing
 
@@ -320,7 +324,8 @@ The server validates all inputs via Pydantic:
 **Solution**:
 ```bash
 # Pre-download tokenizers before deployment
-python -c "from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('Qwen/Qwen3-8B')"
+# Note: Qwen3 requires trust_remote_code=True for custom tokenizer code
+python -c "from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('Qwen/Qwen3-8B', trust_remote_code=True)"
 
 # Or use HuggingFace cache volume
 docker run -v /path/to/hf-cache:/root/.cache/huggingface ...

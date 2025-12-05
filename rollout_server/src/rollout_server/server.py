@@ -94,8 +94,9 @@ TOKENIZER_CACHE_SIZE = int(os.getenv("TOKENIZER_CACHE_SIZE", "5"))
 HTTP_CLIENT_TIMEOUT = float(os.getenv("HTTP_CLIENT_TIMEOUT", "300.0"))
 
 # Security: trust_remote_code for HuggingFace tokenizers
-# Default False for security; set to "true" only for trusted model sources
-TOKENIZER_TRUST_REMOTE_CODE = os.getenv("TOKENIZER_TRUST_REMOTE_CODE", "false").lower() == "true"
+# Default True for Qwen3 and other models with custom tokenizer code
+# Set to "false" if using only standard tokenizers for added security
+TOKENIZER_TRUST_REMOTE_CODE = os.getenv("TOKENIZER_TRUST_REMOTE_CODE", "true").lower() == "true"
 
 # Rate limiting: max concurrent rollouts per server instance
 MAX_CONCURRENT_ROLLOUTS = int(os.getenv("MAX_CONCURRENT_ROLLOUTS", "100"))
