@@ -35,4 +35,8 @@ dev = [
 pythonpath = ["."]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: integration tests requiring external services",
+    "requires_servers: tests that require running servers",
+]
 

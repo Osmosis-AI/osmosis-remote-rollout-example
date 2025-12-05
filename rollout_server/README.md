@@ -234,8 +234,8 @@ cd rollout_server
 # Start both mock trainer and rollout server
 ./scripts/start_test_environment.sh
 
-# Run tests
-uv run python -m tests.test_with_mock_trainer
+# Run E2E tests
+uv run pytest examples/e2e_test_with_servers.py -v
 
 # Stop the environment when done
 ./scripts/stop_test_environment.sh
@@ -433,36 +433,57 @@ curl -X POST http://localhost:9000/rollout \
 
 ### Test Suite
 
-#### Unit Tests (`tests/unit/`)
-- `test_session.py` - RolloutSession mask calculation
-- `test_tools.py` - Calculator tools
-- `test_config.py` - Configuration
+This project has two types of tests:
 
-Run unit tests:
+#### 1. Automated Tests (tests/)
+
+**Integration Tests** - Fast, in-process tests using FastAPI TestClient:
+- `tests/integration/test_rollout_api.py` - Full /rollout endpoint with mocked trainer
+- No external servers required
+- Runs in 2-3 seconds
+- **Use these for regular development and CI/CD**
+
+Run automated tests:
 ```bash
 cd rollout_server
-uv run pytest tests/unit/ -v
+
+# Run all automated tests
+uv run pytest tests/ -v
+
+# Run with coverage
+uv run pytest tests/ --cov=rollout_server --cov-report=term-missing
 ```
 
-#### Integration Tests (`tests/integration/`)
-- `test_response_mask.py` - **CRITICAL** - Verify mask correctness
-- `test_end_to_end.py` - Full rollout flow
-- `test_multi_turn.py` - Multi-turn conversations
+#### 2. E2E Tests (examples/)
 
-Run integration tests:
+**End-to-End Tests** - Tests with real running servers:
+- `examples/e2e_test_with_servers.py` - Requires servers on ports 9000 and 9001
+- Tests actual HTTP communication
+- **Use these for manual validation and debugging only**
+
+Run E2E tests:
 ```bash
 cd rollout_server
-uv run pytest tests/integration/ -v
+
+# Terminal 1: Start mock trainer
+uv run python -m rollout_server.tests.mocks.mock_trainer
+
+# Terminal 2: Start rollout server
+uv run python -m rollout_server.server
+
+# Terminal 3: Run E2E tests
+uv run pytest examples/e2e_test_with_servers.py -v
 ```
 
-#### Mock Infrastructure (`tests/mocks/`)
-- `mock_trainer.py` - Mock /v1/completions endpoint for standalone testing
-- `test_with_mock_trainer.py` - Integration test using mock trainer
+#### Mock Infrastructure
+
+- `tests/mocks/mock_trainer.py` - Standalone mock trainer for E2E testing
+- Integration tests use in-process mocks (no standalone server needed)
 
 ### Additional Testing Documentation
 
 For more detailed testing information, see:
-- [`docs/TESTING.md`](docs/TESTING.md) - Comprehensive testing guide
+- [`tests/README.md`](tests/README.md) - Complete test suite documentation
 - [`docs/RESPONSE_MASK_GUIDE.md`](docs/RESPONSE_MASK_GUIDE.md) - Response mask validation
 
 ## Protocol Reference
