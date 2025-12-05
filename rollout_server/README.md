@@ -633,6 +633,6 @@ See the main traingate repository for contribution guidelines.
 
 ## Resources
 
-- **TrainGate Documentation**: https://github.com/Osmosis-AI/traingate
+- **TrainGate Documentation**: https://github.com/Osmosis-AI/osmosis-traingate
 - **Remote Rollout Design**: See `docs/remote_rollout_design.md` in the TrainGate repository
 - **RolloutServer Implementation Guide**: See `docs/rollout_server.md` in the TrainGate repository
