@@ -32,7 +32,7 @@ from rollout_server.schemas import (
     Message,
 )
 from rollout_server.session import RolloutSession
-from rollout_server.tools.calculator import execute_calculator_calls
+from rollout_server.tools.calculator import execute_calculator_calls, CALCULATOR_TOOL_SCHEMAS
 
 
 # =============================================================================
@@ -258,6 +258,41 @@ def parse_tool_calls(message: Dict[str, Any]) -> List[Dict[str, Any]]:
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "rollout-server"}
+
+
+@app.get("/get_tools")
+async def get_tools():
+    """Return available tool schemas for LLM tool calling.
+
+    This endpoint allows clients to discover what tools are available
+    on this RolloutServer. The schemas follow the OpenAI function calling format.
+
+    Returns:
+        Dict with "tools" key containing list of tool schemas
+
+    Example Response:
+        {
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "add",
+                        "description": "Add two numbers",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "a": {"type": "number", "description": "First number"},
+                                "b": {"type": "number", "description": "Second number"}
+                            },
+                            "required": ["a", "b"]
+                        }
+                    }
+                },
+                ...
+            ]
+        }
+    """
+    return {"tools": CALCULATOR_TOOL_SCHEMAS}
 
 
 @app.post("/rollout")
