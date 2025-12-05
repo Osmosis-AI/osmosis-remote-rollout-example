@@ -14,19 +14,13 @@ Test coverage:
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
-from transformers import AutoTokenizer
 
 from rollout_server.session import RolloutSession
 from rollout_server.schemas import CompletionsResponse, CompletionsChoice, Message
 
 
-@pytest.fixture
-def tokenizer():
-    """Load Qwen3-8B tokenizer for testing."""
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-8B")
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    return tokenizer
+# Note: tokenizer fixture is provided by conftest.py (session-scoped for performance)
+# It uses Qwen/Qwen3-8B with trust_remote_code controlled by TEST_TRUST_REMOTE_CODE env var
 
 
 @pytest.fixture

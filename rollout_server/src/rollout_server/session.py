@@ -232,9 +232,13 @@ class RolloutSession:
         logger.debug(f"[{self.rollout_id}] Appended assistant message")
 
     async def close(self):
-        """Close HTTP client only if we created it (not shared)."""
+        """Close HTTP client only if we created it (not shared).
+
+        This method is idempotent - safe to call multiple times.
+        """
         if self._owns_client and self.http_client:
             await self.http_client.aclose()
+            self.http_client = None  # Prevent double-close
 
 
 # =============================================================================

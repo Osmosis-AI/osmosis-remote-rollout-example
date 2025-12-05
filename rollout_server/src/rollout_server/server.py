@@ -39,9 +39,6 @@ from rollout_server.tools.calculator import execute_calculator_calls
 # Constants
 # =============================================================================
 
-# Maximum tokens limit for sampling params
-MAX_TOKENS_LIMIT = 32768
-
 # Default sampling parameter values
 DEFAULT_TEMPERATURE = 1.0
 DEFAULT_TOP_P = 1.0
@@ -338,8 +335,7 @@ async def _execute_rollout_inner(request: RolloutRequest) -> RolloutResponse:
     try:
         # Load tokenizer (MUST match trainer's tokenizer!)
         # Use LRU cache to avoid reloading tokenizers on every request
-        # CRITICAL: Always access LRUCache within the lock to avoid race conditions
-        # (LRUCache is not thread-safe; even reads modify internal LRU order)
+        # Uses double-checked locking pattern to minimize lock contention
         try:
             if request.tokenizer_name:
                 cache_key = (request.tokenizer_name, request.tokenizer_revision)
@@ -348,24 +344,32 @@ async def _execute_rollout_inner(request: RolloutRequest) -> RolloutResponse:
                 cache_key = ("default", None)
                 logger.warning(f"[{rollout_id}] No tokenizer specified, using default Qwen3-8B")
 
-            # Always acquire lock for cache access (LRUCache is not thread-safe)
-            async with app_state._tokenizer_cache_lock:
-                if cache_key in app_state.tokenizer_cache:
-                    logger.debug(f"[{rollout_id}] Using cached tokenizer: {cache_key[0]}")
-                    tokenizer = app_state.tokenizer_cache[cache_key]
-                else:
-                    logger.info(f"[{rollout_id}] Loading tokenizer: {cache_key[0]}")
-                    # Load tokenizer in thread pool to avoid blocking event loop
-                    tokenizer_name = cache_key[0] if cache_key[0] != "default" else "Qwen/Qwen3-8B"
-                    tokenizer = await asyncio.to_thread(
-                        load_tokenizer, tokenizer_name, cache_key[1]
-                    )
-                    # Store in LRU cache (automatic eviction when full)
-                    app_state.tokenizer_cache[cache_key] = tokenizer
-                    logger.info(
-                        f"[{rollout_id}] Cached tokenizer. "
-                        f"Cache size: {len(app_state.tokenizer_cache)}/{app_state.tokenizer_cache.maxsize}"
-                    )
+            # First check without lock (fast path for cached tokenizers)
+            # Note: LRUCache reads modify internal order, but this is acceptable
+            # for a quick existence check - we'll verify again under lock
+            tokenizer = app_state.tokenizer_cache.get(cache_key)
+            if tokenizer is not None:
+                logger.debug(f"[{rollout_id}] Using cached tokenizer: {cache_key[0]}")
+            else:
+                # Acquire lock only when we need to potentially load a new tokenizer
+                async with app_state._tokenizer_cache_lock:
+                    # Double-check after acquiring lock (another request may have loaded it)
+                    tokenizer = app_state.tokenizer_cache.get(cache_key)
+                    if tokenizer is not None:
+                        logger.debug(f"[{rollout_id}] Using cached tokenizer (loaded by another request): {cache_key[0]}")
+                    else:
+                        logger.info(f"[{rollout_id}] Loading tokenizer: {cache_key[0]}")
+                        # Load tokenizer in thread pool to avoid blocking event loop
+                        tokenizer_name = cache_key[0] if cache_key[0] != "default" else "Qwen/Qwen3-8B"
+                        tokenizer = await asyncio.to_thread(
+                            load_tokenizer, tokenizer_name, cache_key[1]
+                        )
+                        # Store in LRU cache (automatic eviction when full)
+                        app_state.tokenizer_cache[cache_key] = tokenizer
+                        logger.info(
+                            f"[{rollout_id}] Cached tokenizer. "
+                            f"Cache size: {len(app_state.tokenizer_cache)}/{app_state.tokenizer_cache.maxsize}"
+                        )
 
         except Exception as e:
             logger.error(f"[{rollout_id}] Failed to load tokenizer: {e}")
@@ -410,8 +414,17 @@ async def _execute_rollout_inner(request: RolloutRequest) -> RolloutResponse:
                 return RolloutResponse(
                     rollout_id=rollout_id,
                     status=RolloutStatus.ERROR,
-                    error_message="Invalid conversation state (possible context truncation)",
-                    final_messages=[]
+                    error_message=f"Invalid conversation state (possible context truncation): {e}",
+                    final_messages=[],
+                    metrics=RolloutMetrics(
+                        total_latency_ms=(time.time() - start_time) * 1000,
+                        llm_latency_ms=total_llm_latency_ms,
+                        tool_latency_ms=total_tool_latency_ms,
+                        num_llm_calls=num_llm_calls,
+                        num_tool_calls=num_tool_calls,
+                        prompt_tokens=prompt_tokens,
+                        response_tokens=response_tokens,
+                    )
                 )
 
             # 2. Track token usage for max_tokens_total enforcement
@@ -474,7 +487,8 @@ async def _execute_rollout_inner(request: RolloutRequest) -> RolloutResponse:
 
             except Exception as e:
                 logger.error(f"[{rollout_id}] Tool execution failed: {e}")
-                raise ToolExecutionError(f"Failed to execute tools") from e
+                # Preserve original error message for traingate debugging
+                raise ToolExecutionError(f"Failed to execute tools: {e}") from e
 
             # 6. Append tool outputs (session tracks for next response_mask)
             session.append_tool_outputs(tool_results)
@@ -499,16 +513,42 @@ async def _execute_rollout_inner(request: RolloutRequest) -> RolloutResponse:
         )
 
     except httpx.HTTPStatusError as e:
-        # HTTP error from trainer - safe to expose status code
+        # HTTP error from trainer - categorize for traingate retry logic
+        status_code = e.response.status_code
         logger.error(
             f"[{rollout_id}] HTTP error from trainer: "
-            f"{e.response.status_code} - {e.response.text}"
+            f"{status_code} - {e.response.text}"
         )
+
+        # Categorize error for traingate to determine retry strategy
+        if status_code == 429:
+            error_category = "rate_limited"
+            error_message = "Trainer rate limit exceeded (429)"
+        elif status_code >= 500:
+            error_category = "trainer_server_error"
+            error_message = f"Trainer server error (status {status_code}) - retryable"
+        elif status_code >= 400:
+            error_category = "trainer_client_error"
+            error_message = f"Trainer client error (status {status_code}) - check request"
+        else:
+            error_category = "trainer_error"
+            error_message = f"Trainer returned error (status {status_code})"
+
         return RolloutResponse(
             rollout_id=rollout_id,
             status=RolloutStatus.ERROR,
-            error_message=f"Trainer returned error (status {e.response.status_code})",
-            final_messages=[]
+            error_message=error_message,
+            final_messages=[],
+            extra_fields={"error_category": error_category, "http_status": status_code},
+            metrics=RolloutMetrics(
+                total_latency_ms=(time.time() - start_time) * 1000,
+                llm_latency_ms=total_llm_latency_ms,
+                tool_latency_ms=total_tool_latency_ms,
+                num_llm_calls=num_llm_calls,
+                num_tool_calls=num_tool_calls,
+                prompt_tokens=prompt_tokens,
+                response_tokens=response_tokens,
+            )
         )
 
     except httpx.RequestError as e:
@@ -518,7 +558,17 @@ async def _execute_rollout_inner(request: RolloutRequest) -> RolloutResponse:
             rollout_id=rollout_id,
             status=RolloutStatus.ERROR,
             error_message="Network error communicating with trainer",
-            final_messages=[]
+            final_messages=[],
+            extra_fields={"error_category": "network_error"},
+            metrics=RolloutMetrics(
+                total_latency_ms=(time.time() - start_time) * 1000,
+                llm_latency_ms=total_llm_latency_ms,
+                tool_latency_ms=total_tool_latency_ms,
+                num_llm_calls=num_llm_calls,
+                num_tool_calls=num_tool_calls,
+                prompt_tokens=prompt_tokens,
+                response_tokens=response_tokens,
+            )
         )
 
     except TokenizerLoadError as e:
@@ -527,18 +577,32 @@ async def _execute_rollout_inner(request: RolloutRequest) -> RolloutResponse:
         return RolloutResponse(
             rollout_id=rollout_id,
             status=RolloutStatus.ERROR,
-            error_message="Failed to load tokenizer",
-            final_messages=[]
+            error_message=f"Failed to load tokenizer: {e}",
+            final_messages=[],
+            extra_fields={"error_category": "tokenizer_error"},
+            metrics=RolloutMetrics(
+                total_latency_ms=(time.time() - start_time) * 1000,
+            )
         )
 
     except ToolExecutionError as e:
-        # Tool error - safe to expose
+        # Tool error - safe to expose (error message preserved for debugging)
         logger.error(f"[{rollout_id}] Tool execution error: {e}")
         return RolloutResponse(
             rollout_id=rollout_id,
             status=RolloutStatus.ERROR,
-            error_message="Tool execution failed",
-            final_messages=[]
+            error_message=str(e),  # Preserved original error for traingate debugging
+            final_messages=[],
+            extra_fields={"error_category": "tool_error"},
+            metrics=RolloutMetrics(
+                total_latency_ms=(time.time() - start_time) * 1000,
+                llm_latency_ms=total_llm_latency_ms,
+                tool_latency_ms=total_tool_latency_ms,
+                num_llm_calls=num_llm_calls,
+                num_tool_calls=num_tool_calls,
+                prompt_tokens=prompt_tokens,
+                response_tokens=response_tokens,
+            )
         )
 
     except ValidationError as e:
@@ -547,8 +611,18 @@ async def _execute_rollout_inner(request: RolloutRequest) -> RolloutResponse:
         return RolloutResponse(
             rollout_id=rollout_id,
             status=RolloutStatus.ERROR,
-            error_message="Invalid request data",
-            final_messages=[]
+            error_message=f"Invalid request data: {e}",
+            final_messages=[],
+            extra_fields={"error_category": "validation_error"},
+            metrics=RolloutMetrics(
+                total_latency_ms=(time.time() - start_time) * 1000,
+                llm_latency_ms=total_llm_latency_ms,
+                tool_latency_ms=total_tool_latency_ms,
+                num_llm_calls=num_llm_calls,
+                num_tool_calls=num_tool_calls,
+                prompt_tokens=prompt_tokens,
+                response_tokens=response_tokens,
+            )
         )
 
     except Exception as e:
@@ -558,7 +632,17 @@ async def _execute_rollout_inner(request: RolloutRequest) -> RolloutResponse:
             rollout_id=rollout_id,
             status=RolloutStatus.ERROR,
             error_message="Internal server error",  # Generic message
-            final_messages=[]
+            final_messages=[],
+            extra_fields={"error_category": "internal_error"},
+            metrics=RolloutMetrics(
+                total_latency_ms=(time.time() - start_time) * 1000,
+                llm_latency_ms=total_llm_latency_ms,
+                tool_latency_ms=total_tool_latency_ms,
+                num_llm_calls=num_llm_calls,
+                num_tool_calls=num_tool_calls,
+                prompt_tokens=prompt_tokens,
+                response_tokens=response_tokens,
+            )
         )
 
     finally:
