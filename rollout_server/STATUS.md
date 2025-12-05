@@ -7,7 +7,7 @@
 
 ### Phase 1: Critical Components ✅
 
-1. **✅ rollout_server/session.py** - RolloutSession class
+1. **✅ src/rollout_server/session.py** - RolloutSession class
    - Implements CORRECT response_mask calculation pattern
    - Based on docs/rollout_server.md:305-350 reference implementation
    - Includes alternative implementation (RolloutSessionExplicit)
@@ -64,16 +64,17 @@
     - .python-version - Python 3.11
     - __init__.py files in all packages
 
+11. **✅ tests/mocks/mock_trainer.py** - Mock /v1/completions endpoint
+    - Simulates trainer's AsyncLLMServerManagerFastAPI
+    - Validates response_mask correctness
+    - Returns mock LLM responses
+    - Standalone server for E2E testing
+
 ## Pending Components
 
 These components are planned but not yet implemented:
 
 ### Testing Infrastructure
-
-- **tests/mocks/mock_trainer.py** - Mock /v1/completions endpoint
-  - Simulates traingate's AsyncLLMServerManagerFastAPI
-  - Validates response_mask correctness
-  - Returns mock LLM responses
 
 - **tests/conftest.py** - pytest fixtures
   - Mock tokenizer

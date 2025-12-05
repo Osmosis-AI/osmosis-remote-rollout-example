@@ -42,6 +42,7 @@ class AppState:
     def __init__(self):
         self.tokenizer: Optional[AutoTokenizer] = None
         self.http_client: Optional[httpx.AsyncClient] = None
+        self.tokenizer_cache: dict = {}  # Cache for loaded tokenizers
 
 
 app_state = AppState()
@@ -106,17 +107,17 @@ def load_tokenizer(tokenizer_name: str, tokenizer_revision: Optional[str] = None
     """
     logger.info(f"Loading tokenizer: {tokenizer_name} (revision={tokenizer_revision})")
 
-    # WARNING: trust_remote_code=True allows arbitrary code execution from the model repository.
-    # This is necessary for some tokenizers (e.g., Qwen) but poses a security risk.
-    # In production environments, consider:
-    # 1. Using only verified/trusted model repositories
-    # 2. Making this configurable via environment variable (default: False)
-    # 3. Running in a sandboxed environment with restricted permissions
-    # 4. Reviewing the model's code before enabling this option
+    # NOTE: trust_remote_code=True allows execution of custom code from the model repository.
+    # This is required for models like Qwen that have custom tokenizer implementations.
+    # For this example repository, we enable it by default for ease of use.
+    # In production deployments, consider:
+    # 1. Reviewing model repository code before use
+    # 2. Running in sandboxed environments
+    # 3. Using only verified/trusted model sources
     tokenizer = AutoTokenizer.from_pretrained(
         tokenizer_name,
         revision=tokenizer_revision,
-        trust_remote_code=True  # Required for models like Qwen
+        trust_remote_code=True  # Required for Qwen and other models with custom tokenizers
     )
 
     # Ensure tokenizer has pad_token (required for batching)
@@ -188,16 +189,28 @@ async def handle_rollout(request: RolloutRequest) -> RolloutResponse:
     rollout_id = request.rollout_id
     logger.info(f"[{rollout_id}] Received rollout request: max_turns={request.max_turns}")
 
+    session = None  # Initialize for cleanup in finally block
+
     try:
         # Load tokenizer (MUST match trainer's tokenizer!)
+        # Use cache to avoid reloading tokenizers on every request
         if request.tokenizer_name:
-            tokenizer = load_tokenizer(request.tokenizer_name, request.tokenizer_revision)
+            cache_key = (request.tokenizer_name, request.tokenizer_revision)
+            if cache_key not in app_state.tokenizer_cache:
+                logger.info(f"[{rollout_id}] Loading tokenizer: {request.tokenizer_name}")
+                app_state.tokenizer_cache[cache_key] = load_tokenizer(
+                    request.tokenizer_name, request.tokenizer_revision
+                )
+            else:
+                logger.debug(f"[{rollout_id}] Using cached tokenizer: {request.tokenizer_name}")
+            tokenizer = app_state.tokenizer_cache[cache_key]
         else:
             # Fallback tokenizer for testing
-            if app_state.tokenizer is None:
+            cache_key = ("default", None)
+            if cache_key not in app_state.tokenizer_cache:
                 logger.warning("No tokenizer specified in request, using default Qwen3-8B")
-                app_state.tokenizer = load_tokenizer("Qwen/Qwen3-8B")
-            tokenizer = app_state.tokenizer
+                app_state.tokenizer_cache[cache_key] = load_tokenizer("Qwen/Qwen3-8B")
+            tokenizer = app_state.tokenizer_cache[cache_key]
 
         # Create session (manages response_mask calculation)
         session = RolloutSession(
@@ -284,7 +297,7 @@ async def handle_rollout(request: RolloutRequest) -> RolloutResponse:
 
     finally:
         # Cleanup session
-        if 'session' in locals():
+        if session:
             await session.close()
 
 

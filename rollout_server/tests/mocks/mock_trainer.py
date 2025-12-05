@@ -5,7 +5,8 @@ expects to call back to. It provides canned responses for testing without
 requiring a real GPU-backed training cluster.
 
 Usage:
-    python -m rollout_server.tests.mocks.mock_trainer
+    cd rollout_server
+    python -m tests.mocks.mock_trainer
 """
 
 import time

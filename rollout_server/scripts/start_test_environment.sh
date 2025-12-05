@@ -51,17 +51,27 @@ MOCK_TRAINER_PORT=$MOCK_TRAINER_PORT uv run python -m tests.mocks.mock_trainer \
     > "$LOG_DIR/mock_trainer.log" 2>&1 &
 MOCK_TRAINER_PID=$!
 
-# Wait for mock trainer to start
-sleep 3
-if ! kill -0 $MOCK_TRAINER_PID 2>/dev/null; then
-    echo "Error: Mock trainer failed to start. Check logs:"
-    echo "  cat $LOG_DIR/mock_trainer.log"
-    exit 1
-fi
+# Wait for mock trainer to start with health check loop
+echo "Waiting for mock trainer to be ready..."
+MAX_RETRIES=30
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if ! kill -0 $MOCK_TRAINER_PID 2>/dev/null; then
+        echo "Error: Mock trainer process died. Check logs:"
+        echo "  cat $LOG_DIR/mock_trainer.log"
+        exit 1
+    fi
 
-# Verify mock trainer is responding
-if ! curl -s http://localhost:$MOCK_TRAINER_PORT/health >/dev/null 2>&1; then
-    echo "Error: Mock trainer is not responding. Check logs:"
+    if curl -s http://localhost:$MOCK_TRAINER_PORT/health >/dev/null 2>&1; then
+        break
+    fi
+
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    sleep 0.5
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "Error: Mock trainer failed to become healthy within 15 seconds. Check logs:"
     echo "  cat $LOG_DIR/mock_trainer.log"
     kill $MOCK_TRAINER_PID 2>/dev/null || true
     exit 1
@@ -78,18 +88,28 @@ ROLLOUT_SERVER_PORT=$ROLLOUT_SERVER_PORT uv run python -m rollout_server.server 
     > "$LOG_DIR/rollout_server.log" 2>&1 &
 ROLLOUT_SERVER_PID=$!
 
-# Wait for rollout server to start
-sleep 3
-if ! kill -0 $ROLLOUT_SERVER_PID 2>/dev/null; then
-    echo "Error: Rollout server failed to start. Check logs:"
-    echo "  cat $LOG_DIR/rollout_server.log"
-    kill $MOCK_TRAINER_PID 2>/dev/null || true
-    exit 1
-fi
+# Wait for rollout server to start with health check loop
+echo "Waiting for rollout server to be ready..."
+MAX_RETRIES=30
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if ! kill -0 $ROLLOUT_SERVER_PID 2>/dev/null; then
+        echo "Error: Rollout server process died. Check logs:"
+        echo "  cat $LOG_DIR/rollout_server.log"
+        kill $MOCK_TRAINER_PID 2>/dev/null || true
+        exit 1
+    fi
 
-# Verify rollout server is responding
-if ! curl -s http://localhost:$ROLLOUT_SERVER_PORT/health >/dev/null 2>&1; then
-    echo "Error: Rollout server is not responding. Check logs:"
+    if curl -s http://localhost:$ROLLOUT_SERVER_PORT/health >/dev/null 2>&1; then
+        break
+    fi
+
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    sleep 0.5
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "Error: Rollout server failed to become healthy within 15 seconds. Check logs:"
     echo "  cat $LOG_DIR/rollout_server.log"
     kill $MOCK_TRAINER_PID 2>/dev/null || true
     kill $ROLLOUT_SERVER_PID 2>/dev/null || true
@@ -117,7 +137,7 @@ echo "  Rollout Server: http://localhost:$ROLLOUT_SERVER_PORT"
 echo "  API Docs:       http://localhost:$ROLLOUT_SERVER_PORT/docs"
 echo ""
 echo "Test the /rollout endpoint:"
-echo "  uv run python -m tests.test_with_mock_trainer"
+echo "  uv run pytest examples/e2e_test_with_servers.py -v"
 echo ""
 echo "Or use curl:"
 echo "  curl -X POST http://localhost:$ROLLOUT_SERVER_PORT/rollout \\"

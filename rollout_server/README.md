@@ -285,11 +285,11 @@ ROLLOUT_SERVER_PORT=9100 uv run python -m rollout_server.server
 
 #### Step 3: Run Tests
 
-**Option A: Automated Test Script**
+**Option A: Run E2E Tests**
 
 ```bash
 cd rollout_server
-uv run python -m tests.test_with_mock_trainer
+uv run pytest examples/e2e_test_with_servers.py -v
 ```
 
 **Option B: FastAPI Docs UI**
@@ -466,7 +466,7 @@ Run E2E tests:
 cd rollout_server
 
 # Terminal 1: Start mock trainer
-uv run python -m rollout_server.tests.mocks.mock_trainer
+uv run python -m tests.mocks.mock_trainer
 
 # Terminal 2: Start rollout server
 uv run python -m rollout_server.server

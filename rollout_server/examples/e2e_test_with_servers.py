@@ -82,7 +82,7 @@ async def check_server_health(client: httpx.AsyncClient, url: str) -> bool:
     try:
         response = await client.get(f"{url}/health", timeout=5.0)
         return response.status_code == 200
-    except Exception:
+    except httpx.RequestError:
         return False
 
 
@@ -143,7 +143,7 @@ async def test_rollout_endpoint(async_client, rollout_server_url, mock_trainer_u
     if not rollout_server_healthy:
         pytest.skip(
             f"Rollout server not available at {rollout_server_url}. "
-            "Start it with: cd rollout_server && python -m rollout_server.server"
+            "Start it with: python -m rollout_server.server"
         )
 
     # Send rollout request

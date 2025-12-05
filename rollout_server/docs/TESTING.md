@@ -33,8 +33,8 @@ cd rollout_server
 #   Rollout Server: http://localhost:9000
 #   API Docs:       http://localhost:9000/docs
 
-# Run tests
-uv run python -m tests.test_with_mock_trainer
+# Run E2E tests
+uv run pytest examples/e2e_test_with_servers.py -v
 
 # Or test via API docs UI
 # Open http://localhost:9000/docs in your browser
@@ -62,7 +62,7 @@ MOCK_TRAINER_PORT=9002 ROLLOUT_SERVER_PORT=9100 ./scripts/start_test_environment
 
 ```bash
 cd rollout_server
-uv run python -m rollout_server.tests.mocks.mock_trainer
+uv run python -m tests.mocks.mock_trainer
 ```
 
 This starts a mock trainer on port 9001 that simulates LLM responses.
@@ -80,11 +80,11 @@ This starts the rollout server on port 9000.
 
 ### Step 3: Test the Endpoint
 
-#### Option A: Use the Test Script
+#### Option A: Run E2E Tests
 
 ```bash
 cd rollout_server
-uv run python -m rollout_server.tests.test_with_mock_trainer
+uv run pytest examples/e2e_test_with_servers.py -v
 ```
 
 #### Option B: Use FastAPI Docs UI
