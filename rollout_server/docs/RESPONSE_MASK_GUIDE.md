@@ -76,7 +76,7 @@ Final response_mask: [1, 1, 1, 1, 1, 0, 0,  1,  1,  1,  1,  1]
 ```
 response_ids:  [4, 5, 6, 7, 8, 9, 10, 11, 12]
 response_mask: [1, 1, 1, 0, 0, 0,  0,  0,  0]  ← Wrong! Marked LLM tokens as 0
-               └─ LLM ─┘ └──── LLM tokens ────┘
+               └─ LLM ─┘ └─── LLM tokens ──┘
                          ⚠️  Should be 1s, not 0s!
 ```
 
