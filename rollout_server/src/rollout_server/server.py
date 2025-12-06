@@ -30,6 +30,7 @@ from rollout_server.schemas import (
     RolloutStatus,
     RolloutMetrics,
     Message,
+    ToolsResponse,
 )
 from rollout_server.session import RolloutSession
 from rollout_server.tools.calculator import execute_calculator_calls, CALCULATOR_TOOL_SCHEMAS
@@ -260,15 +261,18 @@ async def health_check():
     return {"status": "healthy", "service": "rollout-server"}
 
 
-@app.get("/get_tools")
-async def get_tools():
+@app.get("/tools", response_model=ToolsResponse)
+async def get_tools() -> ToolsResponse:
     """Return available tool schemas for LLM tool calling.
 
-    This endpoint allows clients to discover what tools are available
-    on this RolloutServer. The schemas follow the OpenAI function calling format.
+    This endpoint is called once at worker startup by the training cluster
+    to discover what tools are available. The tool definitions are used for
+    apply_chat_template() so the LLM knows what tools it can use.
+
+    The schemas follow the OpenAI function calling format.
 
     Returns:
-        Dict with "tools" key containing list of tool schemas
+        ToolsResponse with list of tool definitions
 
     Example Response:
         {
@@ -291,8 +295,10 @@ async def get_tools():
                 ...
             ]
         }
+
+    Reference: docs/rollout_server.md Section 3.0
     """
-    return {"tools": CALCULATOR_TOOL_SCHEMAS}
+    return ToolsResponse(tools=CALCULATOR_TOOL_SCHEMAS)
 
 
 @app.post("/rollout")

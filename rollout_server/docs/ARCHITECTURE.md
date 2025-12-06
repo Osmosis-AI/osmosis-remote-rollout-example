@@ -62,10 +62,11 @@ The Remote Rollout Server is a reference implementation that demonstrates the ca
 
 ### 1. FastAPI Server (`server.py`)
 
-The main entry point that exposes the `/rollout` endpoint.
+The main entry point that exposes the `/rollout` and `/tools` endpoints.
 
 **Responsibilities:**
 
+- Expose `GET /tools` for tool definitions (called once at worker startup)
 - Handle incoming rollout requests
 - Manage tokenizer caching (LRU cache with configurable size)
 - Drive the agent loop
@@ -148,6 +149,24 @@ Pydantic models for protocol data structures.
 
 ## Data Flow
 
+### 0. Tool Discovery Flow (Worker Startup)
+
+```
+OsmosisAgentLoopWorker               RolloutServer
+     │                                   │
+     │   GET /tools                      │
+     ├──────────────────────────────────▶│
+     │                                   │
+     │   {"tools": [...]}                │
+     │◀──────────────────────────────────┤
+     │                                   │
+     │   Cache tools for                 │
+     │   apply_chat_template()           │
+     │                                   │
+```
+
+This happens **once per worker** at startup. The tool definitions are cached and used for all rollouts to ensure the LLM knows what tools are available.
+
 ### 1. Rollout Request Flow
 
 ```
@@ -200,6 +219,70 @@ Turn 2 (After tool output):
   LLM returns → [14,15,16]
   Update: last_prompt_length = 13 + 3 = 16
 ```
+
+## Termination Conditions
+
+### RolloutServer's Control
+
+RolloutServer has **full control** over when to terminate a rollout. The `max_turns` and `max_tokens_total` parameters in `RolloutRequest` are **advisory**.
+
+### Standard Termination Conditions
+
+| Condition | `finish_reason` | Description |
+|-----------|-----------------|-------------|
+| No tool calls | `"stop"` | LLM generated response without tool calls (natural completion) |
+| Turn limit | `"max_turns"` | Reached `max_turns` limit |
+| Token limit | `"max_tokens"` | Reached `max_tokens_total` limit |
+| Error | `"error"` | Rollout failed (set `error_message`) |
+
+### Comparison with Local Mode
+
+Remote rollout uses a **single `max_turns`** counter, while verl's local `ToolAgentLoop` uses separate counters:
+
+| Parameter | Remote Mode | Local Mode (`ToolAgentLoop`) |
+|-----------|-------------|------------------------------|
+| Turn limit | `max_turns` (single) | `max_assistant_turns` + `max_user_turns` (separate) |
+| Token limit | `max_tokens_total` | `response_length` |
+
+**Why the difference?**
+
+Remote mode intentionally simplifies turn counting because:
+1. RolloutServer can implement any termination logic internally
+2. Decoupling agent logic from training is the design goal
+3. Training correctness depends on `AgentLoopOutput`, not termination strategy
+
+### num_turns Semantics
+
+`RolloutMetrics.num_llm_calls` represents the number of LLM generation calls:
+
+```
+User: "Calculate 15*23"
+  Turn 1: LLM → "I'll use calculator" + tool_call    → num_llm_calls = 1
+  Turn 2: LLM → "The result is 345"                  → num_llm_calls = 2
+
+Final: AgentLoopOutput.num_turns = metrics.num_llm_calls = 2
+```
+
+OsmosisAgentLoop uses this value to populate `AgentLoopOutput.num_turns` for training metrics.
+
+### Optional Fine-Grained Control
+
+If callers need local-mode-style control, they can pass hints in `metadata`:
+
+```python
+RolloutRequest(
+    ...,
+    metadata={
+        "max_assistant_turns": 5,
+        "max_user_turns": 5,
+        "termination_strategy": "task_completion"
+    }
+)
+```
+
+**Note**: These are optional hints. This implementation does not currently use them, but custom RolloutServer implementations may choose to support them.
+
+Reference: [traingate/docs/remote_rollout_design.md](https://github.com/Osmosis-AI/traingate) Section 11
 
 ## Configuration
 

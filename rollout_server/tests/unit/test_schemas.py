@@ -15,6 +15,9 @@ from rollout_server.schemas import (
     Message,
     SamplingParams,
     CompletionsRequest,
+    ToolsResponse,
+    ToolDefinition,
+    ToolFunction,
 )
 
 
@@ -376,4 +379,141 @@ class TestCompletionsRequestResponseMask:
                 response_mask=[0, -1, 1],
             )
         assert "0 or 1" in str(exc_info.value)
+
+
+class TestToolsResponse:
+    """Test ToolsResponse and related schemas for GET /tools endpoint."""
+
+    def test_empty_tools_response(self):
+        """Test ToolsResponse with empty tools list."""
+        response = ToolsResponse(tools=[])
+        assert response.tools == []
+
+    def test_tools_response_with_single_tool(self):
+        """Test ToolsResponse with a single tool definition."""
+        tool = ToolDefinition(
+            type="function",
+            function=ToolFunction(
+                name="add",
+                description="Add two numbers",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "number"},
+                        "b": {"type": "number"}
+                    },
+                    "required": ["a", "b"]
+                }
+            )
+        )
+        response = ToolsResponse(tools=[tool])
+        assert len(response.tools) == 1
+        assert response.tools[0].type == "function"
+        assert response.tools[0].function.name == "add"
+
+    def test_tools_response_with_multiple_tools(self):
+        """Test ToolsResponse with multiple tool definitions."""
+        tools = [
+            ToolDefinition(
+                type="function",
+                function=ToolFunction(
+                    name="add",
+                    description="Add two numbers"
+                )
+            ),
+            ToolDefinition(
+                type="function",
+                function=ToolFunction(
+                    name="subtract",
+                    description="Subtract two numbers"
+                )
+            ),
+        ]
+        response = ToolsResponse(tools=tools)
+        assert len(response.tools) == 2
+        assert response.tools[0].function.name == "add"
+        assert response.tools[1].function.name == "subtract"
+
+    def test_tool_function_minimal(self):
+        """Test ToolFunction with only required field (name)."""
+        func = ToolFunction(name="test_tool")
+        assert func.name == "test_tool"
+        assert func.description is None
+        assert func.parameters is None
+
+    def test_tool_function_with_all_fields(self):
+        """Test ToolFunction with all fields populated."""
+        func = ToolFunction(
+            name="calculate",
+            description="Perform a calculation",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "expression": {"type": "string"}
+                },
+                "required": ["expression"]
+            }
+        )
+        assert func.name == "calculate"
+        assert func.description == "Perform a calculation"
+        assert func.parameters["type"] == "object"
+
+    def test_tool_definition_default_type(self):
+        """Test that ToolDefinition defaults to type='function'."""
+        tool = ToolDefinition(
+            function=ToolFunction(name="test")
+        )
+        assert tool.type == "function"
+
+    def test_tools_response_from_dict(self):
+        """Test ToolsResponse can be created from raw dict (API response parsing)."""
+        raw_response = {
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "add",
+                        "description": "Add two numbers",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "a": {"type": "number"},
+                                "b": {"type": "number"}
+                            },
+                            "required": ["a", "b"]
+                        }
+                    }
+                }
+            ]
+        }
+        response = ToolsResponse.model_validate(raw_response)
+        assert len(response.tools) == 1
+        assert response.tools[0].function.name == "add"
+
+    def test_tools_response_to_dict(self):
+        """Test ToolsResponse serialization to dict (API response generation)."""
+        response = ToolsResponse(
+            tools=[
+                ToolDefinition(
+                    type="function",
+                    function=ToolFunction(
+                        name="multiply",
+                        description="Multiply two numbers",
+                        parameters={
+                            "type": "object",
+                            "properties": {
+                                "a": {"type": "number"},
+                                "b": {"type": "number"}
+                            },
+                            "required": ["a", "b"]
+                        }
+                    )
+                )
+            ]
+        )
+        result = response.model_dump()
+        assert "tools" in result
+        assert len(result["tools"]) == 1
+        assert result["tools"][0]["type"] == "function"
+        assert result["tools"][0]["function"]["name"] == "multiply"
 

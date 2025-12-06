@@ -27,6 +27,56 @@ MAX_TOKENS_LIMIT = 32768
 
 
 # =============================================================================
+# Tool Definition Schemas (GET /tools endpoint)
+# =============================================================================
+
+
+class ToolFunction(BaseModel):
+    """Function definition within a tool, following OpenAI tool format."""
+
+    name: str
+    description: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+
+
+class ToolDefinition(BaseModel):
+    """Tool definition following OpenAI tools format.
+
+    Example:
+        {
+            "type": "function",
+            "function": {
+                "name": "add",
+                "description": "Add two numbers",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "number"},
+                        "b": {"type": "number"}
+                    },
+                    "required": ["a", "b"]
+                }
+            }
+        }
+    """
+
+    type: str = "function"
+    function: ToolFunction
+
+
+class ToolsResponse(BaseModel):
+    """Response from RolloutServer GET /tools endpoint.
+
+    Contains the list of available tools that the LLM can use during rollout.
+    This is fetched once at worker startup and used for apply_chat_template().
+
+    Specification: docs/rollout_server.md Section 3.0
+    """
+
+    tools: List[ToolDefinition] = Field(default_factory=list)
+
+
+# =============================================================================
 # Message and Chat Schemas
 # =============================================================================
 
@@ -117,12 +167,31 @@ class RolloutStatus(str, Enum):
 
 
 class RolloutMetrics(BaseModel):
-    """Metrics from rollout execution."""
+    """Metrics from rollout execution.
+
+    num_turns Semantics
+    ───────────────────
+    `num_llm_calls` counts the number of LLM generation calls made during the rollout.
+    This value is used by OsmosisAgentLoop to populate `AgentLoopOutput.num_turns`,
+    which is consistent with verl's training pipeline expectations.
+
+    Example:
+        User: "Calculate 15*23"
+        Turn 1: LLM generates "I'll use calculator" + tool_call  → num_llm_calls=1
+        Turn 2: LLM generates "The result is 345"                → num_llm_calls=2
+
+    Note: This differs from verl's local ToolAgentLoop which tracks
+    `assistant_turns` and `user_turns` separately. For remote rollout,
+    we use a single counter (num_llm_calls) for simplicity, as RolloutServer
+    has full control over termination logic.
+
+    Reference: traingate/integrations/verl/schemas.py - RolloutMetrics
+    """
 
     total_latency_ms: float = 0.0
     llm_latency_ms: float = 0.0
     tool_latency_ms: float = 0.0
-    num_llm_calls: int = 0
+    num_llm_calls: int = 0  # Number of LLM generation calls (== num_turns in AgentLoopOutput)
     num_tool_calls: int = 0
     prompt_tokens: int = 0
     response_tokens: int = 0
@@ -141,7 +210,41 @@ class RolloutRequest(BaseModel):
     the entire agent loop. RolloutServer calls back to server_url/v1/completions
     for LLM generation.
 
+    Termination Control
+    ───────────────────
+    `max_turns` and `max_tokens_total` are **advisory parameters**. RolloutServer
+    has full control over termination logic and may implement more sophisticated
+    strategies (e.g., budget-based, task-completion-based, error-rate-based).
+
+    This differs from verl's local ToolAgentLoop which uses `max_assistant_turns`
+    and `max_user_turns` as separate counters. Remote rollout intentionally uses
+    a single `max_turns` for simplicity, as RolloutServer can implement any
+    termination logic internally.
+
+    metadata Field
+    ──────────────
+    The `metadata` field allows passing optional fine-grained control parameters
+    to RolloutServer. RolloutServer may choose to honor these or ignore them.
+
+    Supported optional metadata keys (implementation-dependent):
+    - `max_assistant_turns`: Max LLM generation calls (int)
+    - `max_user_turns`: Max tool/user input turns (int)
+    - `termination_strategy`: Custom termination logic identifier (str)
+    - `budget_tokens`: Token budget for the entire rollout (int)
+
+    Example:
+        metadata = {
+            "max_assistant_turns": 5,
+            "max_user_turns": 5,
+            "termination_strategy": "task_completion"
+        }
+
+    Note: These are optional hints. RolloutServer implementations are not
+    required to support them. Core termination is controlled by `max_turns`
+    and `max_tokens_total`.
+
     Specification: docs/rollout_server.md Section 3.1
+    Reference: traingate/integrations/verl/schemas.py - RolloutRequest
     """
 
     rollout_id: str = Field(..., description="Unique rollout identifier (UUID format)")
@@ -154,15 +257,18 @@ class RolloutRequest(BaseModel):
         default=10,
         ge=1,
         le=100,
-        description="Maximum agent loop iterations (1-100)"
+        description="Advisory: max LLM calls (RolloutServer may override)"
     )
     max_tokens_total: int = Field(
         default=8192,
         ge=1,
         le=1_000_000,
-        description="Maximum total tokens (1-1,000,000)"
+        description="Advisory: max total tokens"
     )
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional fine-grained control parameters"
+    )
 
     # Callback authentication
     callback_api_key: Optional[str] = None  # API key for authenticating callbacks to server_url
@@ -210,15 +316,31 @@ class RolloutResponse(BaseModel):
     Contains the final messages and status. Token tracking data is accumulated
     in SessionManager via /v1/completions requests during the rollout.
 
+    num_turns in AgentLoopOutput
+    ────────────────────────────
+    OsmosisAgentLoop uses `metrics.num_llm_calls` from this response to populate
+    `AgentLoopOutput.num_turns`. This ensures consistency with verl's training
+    pipeline which expects `num_turns` to represent the number of LLM generations.
+
+    finish_reason Values
+    ────────────────────
+    Standard values (RolloutServer should use these for consistency):
+    - "stop": LLM generated response without tool calls (natural completion)
+    - "max_turns": Reached max_turns limit
+    - "max_tokens": Reached max_tokens_total limit
+    - "error": Rollout failed (check error_message)
+    - Custom values: RolloutServer may define additional finish reasons
+
     Specification: docs/rollout_server.md Section 3.1
+    Reference: traingate/integrations/verl/schemas.py - RolloutResponse
     """
 
     rollout_id: str  # Echoed back for correlation
     status: RolloutStatus  # COMPLETED or ERROR
     final_messages: List[Message] = Field(default_factory=list)
-    finish_reason: Optional[str] = None  # "stop", "max_turns", etc.
+    finish_reason: Optional[str] = None  # See docstring for standard values
     error_message: Optional[str] = None
-    metrics: Optional[RolloutMetrics] = None
+    metrics: Optional[RolloutMetrics] = None  # Contains num_llm_calls for num_turns
     extra_fields: Dict[str, Any] = Field(default_factory=dict)
 
 

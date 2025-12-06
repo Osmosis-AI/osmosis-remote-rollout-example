@@ -205,6 +205,38 @@ class RolloutSession:
 4. Update `last_prompt_length` after each LLM call
 5. **Don't update `last_prompt_length` when appending tool outputs!**
 
+### num_turns Semantics
+
+`RolloutMetrics.num_llm_calls` is used by OsmosisAgentLoop to populate `AgentLoopOutput.num_turns`:
+
+```
+User: "Calculate 15*23"
+  Turn 1: LLM → "I'll use calculator" + tool_call    → num_llm_calls = 1
+  Turn 2: LLM → "The result is 345"                  → num_llm_calls = 2
+
+Final: AgentLoopOutput.num_turns = metrics.num_llm_calls = 2
+```
+
+**Note**: This differs from verl's local `ToolAgentLoop` which tracks `assistant_turns` and `user_turns` separately. Remote rollout uses a single counter for simplicity.
+
+### Termination Control
+
+`max_turns` and `max_tokens_total` in `RolloutRequest` are **advisory parameters**. RolloutServer has full control over termination logic and may implement more sophisticated strategies.
+
+Optional fine-grained control via `metadata` field:
+```python
+RolloutRequest(
+    ...,
+    metadata={
+        "max_assistant_turns": 5,
+        "max_user_turns": 5,
+        "termination_strategy": "task_completion"
+    }
+)
+```
+
+See [traingate docs/remote_rollout_design.md](https://github.com/Osmosis-AI/traingate) Section 11 for detailed comparison with local mode.
+
 ## Documentation
 
 - **[README.md](README.md)** (this file) - Quick start and overview
@@ -487,6 +519,35 @@ For more detailed testing information, see:
 - [`docs/RESPONSE_MASK_GUIDE.md`](docs/RESPONSE_MASK_GUIDE.md) - Response mask validation
 
 ## Protocol Reference
+
+### GET /tools (Tool Definitions)
+
+The trainer calls this endpoint once at worker startup to fetch available tool definitions. These tools are passed to `apply_chat_template()` so the LLM knows what tools it can use.
+
+**Request**: No body required.
+
+**Response**:
+```json
+{
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "add",
+        "description": "Add two numbers",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "a": {"type": "number", "description": "First number"},
+            "b": {"type": "number", "description": "Second number"}
+          },
+          "required": ["a", "b"]
+        }
+      }
+    }
+  ]
+}
+```
 
 ### RolloutRequest (OsmosisAgentLoop → RolloutServer)
 
