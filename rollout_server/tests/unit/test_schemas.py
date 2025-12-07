@@ -31,6 +31,7 @@ class TestRolloutIdValidation:
             server_url="http://trainer:8081",
             messages=[Message(role="user", content="Hello")],
             sampling_params=SamplingParams(),
+            tokenizer_name="Qwen/Qwen3-8B",
         )
         assert request.rollout_id == "550e8400-e29b-41d4-a716-446655440000"
 
@@ -45,6 +46,7 @@ class TestRolloutIdValidation:
             server_url="http://trainer:8081",
             messages=[Message(role="user", content="Hello")],
             sampling_params=SamplingParams(),
+            tokenizer_name="Qwen/Qwen3-8B",
         )
         assert request.rollout_id == job_id
 
@@ -57,6 +59,7 @@ class TestRolloutIdValidation:
             server_url="http://trainer:8081",
             messages=[Message(role="user", content="Hello")],
             sampling_params=SamplingParams(),
+            tokenizer_name="Qwen/Qwen3-8B",
         )
         assert request.rollout_id == hex_id
 
@@ -68,6 +71,7 @@ class TestRolloutIdValidation:
             server_url="http://trainer:8081",
             messages=[Message(role="user", content="Hello")],
             sampling_params=SamplingParams(),
+            tokenizer_name="Qwen/Qwen3-8B",
         )
         assert request.rollout_id == complex_id
 
@@ -79,6 +83,7 @@ class TestRolloutIdValidation:
                 server_url="http://trainer:8081",
                 messages=[Message(role="user", content="Hello")],
                 sampling_params=SamplingParams(),
+                tokenizer_name="Qwen/Qwen3-8B",
             )
         assert "rollout_id must be non-empty" in str(exc_info.value)
 
@@ -90,6 +95,7 @@ class TestRolloutIdValidation:
                 server_url="http://trainer:8081",
                 messages=[Message(role="user", content="Hello")],
                 sampling_params=SamplingParams(),
+                tokenizer_name="Qwen/Qwen3-8B",
             )
         assert "rollout_id must be non-empty" in str(exc_info.value)
 
@@ -102,6 +108,7 @@ class TestRolloutIdValidation:
                 server_url="http://trainer:8081",
                 messages=[Message(role="user", content="Hello")],
                 sampling_params=SamplingParams(),
+                tokenizer_name="Qwen/Qwen3-8B",
             )
         assert "256 characters" in str(exc_info.value)
 
@@ -113,6 +120,7 @@ class TestRolloutIdValidation:
             server_url="http://trainer:8081",
             messages=[Message(role="user", content="Hello")],
             sampling_params=SamplingParams(),
+            tokenizer_name="Qwen/Qwen3-8B",
         )
         assert len(request.rollout_id) == 256
 
@@ -176,6 +184,7 @@ class TestServerUrlValidation:
             server_url="http://trainer:8081",
             messages=[Message(role="user", content="Hello")],
             sampling_params=SamplingParams(),
+            tokenizer_name="Qwen/Qwen3-8B",
         )
         assert request.server_url == "http://trainer:8081"
 
@@ -186,6 +195,7 @@ class TestServerUrlValidation:
             server_url="https://trainer.example.com:8081",
             messages=[Message(role="user", content="Hello")],
             sampling_params=SamplingParams(),
+            tokenizer_name="Qwen/Qwen3-8B",
         )
         assert request.server_url == "https://trainer.example.com:8081"
 
@@ -196,6 +206,7 @@ class TestServerUrlValidation:
             server_url="http://trainer:8081/",
             messages=[Message(role="user", content="Hello")],
             sampling_params=SamplingParams(),
+            tokenizer_name="Qwen/Qwen3-8B",
         )
         assert request.server_url == "http://trainer:8081"
 
@@ -207,6 +218,7 @@ class TestServerUrlValidation:
                 server_url="ftp://trainer:8081",
                 messages=[Message(role="user", content="Hello")],
                 sampling_params=SamplingParams(),
+                tokenizer_name="Qwen/Qwen3-8B",
             )
         assert "HTTP/HTTPS URL" in str(exc_info.value)
 
@@ -217,6 +229,7 @@ class TestServerUrlValidation:
             server_url="http://localhost:8081",
             messages=[Message(role="user", content="Hello")],
             sampling_params=SamplingParams(),
+            tokenizer_name="Qwen/Qwen3-8B",
         )
         assert request.server_url == "http://localhost:8081"
 
@@ -233,6 +246,7 @@ class TestServerUrlValidation:
                 server_url=url,
                 messages=[Message(role="user", content="Hello")],
                 sampling_params=SamplingParams(),
+                tokenizer_name="Qwen/Qwen3-8B",
             )
             assert request.server_url == expected
 
@@ -248,9 +262,43 @@ class TestMessagesValidation:
                 server_url="http://trainer:8081",
                 messages=[],
                 sampling_params=SamplingParams(),
+                tokenizer_name="Qwen/Qwen3-8B",
             )
         # Should fail min_length=1 validation
         assert "at least 1" in str(exc_info.value).lower() or "min" in str(exc_info.value).lower()
+
+
+class TestTokenizerNameValidation:
+    """Test tokenizer_name handling.
+
+    tokenizer_name is REQUIRED because:
+    1. RolloutServer MUST use the exact same tokenizer as the training cluster
+    2. Mismatched tokenizers corrupt response_mask calculation and training data
+    3. Fail fast at request validation rather than during rollout execution
+    """
+
+    def test_tokenizer_name_required(self):
+        """Test that tokenizer_name is required at schema level."""
+        with pytest.raises(ValidationError) as exc_info:
+            RolloutRequest(
+                rollout_id="test",
+                server_url="http://trainer:8081",
+                messages=[Message(role="user", content="Hello")],
+                sampling_params=SamplingParams(),
+                # tokenizer_name intentionally omitted - should fail
+            )
+        assert "tokenizer_name" in str(exc_info.value)
+
+    def test_tokenizer_name_accepted(self):
+        """Test that tokenizer_name is accepted when provided."""
+        request = RolloutRequest(
+            rollout_id="test",
+            server_url="http://trainer:8081",
+            messages=[Message(role="user", content="Hello")],
+            sampling_params=SamplingParams(),
+            tokenizer_name="Qwen/Qwen3-8B",
+        )
+        assert request.tokenizer_name == "Qwen/Qwen3-8B"
 
 
 class TestMessageRoleValidation:

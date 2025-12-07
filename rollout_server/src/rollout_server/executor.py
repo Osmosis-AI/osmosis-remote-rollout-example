@@ -55,7 +55,6 @@ class AppState:
     """
 
     def __init__(self) -> None:
-        self.tokenizer: Optional[AutoTokenizer] = None
         self.http_client: Optional[httpx.AsyncClient] = None
 
         # LRU cache with configurable size (~1-2GB per tokenizer)
@@ -132,13 +131,22 @@ def load_tokenizer(tokenizer_name: str, tokenizer_revision: Optional[str] = None
     )
 
     # Ensure tokenizer has pad_token (required for batching)
+    # This is a standard practice and doesn't affect response_mask calculation
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Add default chat template for tokenizers that don't have one (e.g., GPT-2)
+    # CRITICAL: Fail fast if tokenizer doesn't have chat_template
+    # Using a default chat template would cause token count mismatches with the
+    # training cluster, leading to incorrect response_mask calculation and
+    # training data corruption.
     if tokenizer.chat_template is None:
-        logger.warning(f"Tokenizer {tokenizer_name} does not have chat_template, adding default template")
-        tokenizer.chat_template = "{% for message in messages %}{{ message.role }}: {{ message.content }}\n{% endfor %}assistant: "
+        raise TokenizerLoadError(
+            f"Tokenizer {tokenizer_name} does not have a chat_template. "
+            "Using a default template would cause token count mismatches with the "
+            "training cluster and corrupt response_mask calculation. "
+            "Please use a tokenizer with a proper chat_template or configure one "
+            "in the training infrastructure."
+        )
 
     logger.info(f"Tokenizer loaded: vocab_size={tokenizer.vocab_size}")
     return tokenizer
@@ -146,16 +154,20 @@ def load_tokenizer(tokenizer_name: str, tokenizer_revision: Optional[str] = None
 
 async def get_or_load_tokenizer(
     rollout_id: str,
-    tokenizer_name: Optional[str],
+    tokenizer_name: str,
     tokenizer_revision: Optional[str]
 ) -> AutoTokenizer:
     """Get tokenizer from cache or load it.
 
     Uses double-checked locking pattern to minimize lock contention.
 
+    CRITICAL: tokenizer_name is REQUIRED (enforced by Pydantic schema).
+    Using a mismatched tokenizer will corrupt response_mask calculation
+    and training data.
+
     Args:
         rollout_id: For logging purposes
-        tokenizer_name: Model name or None for default
+        tokenizer_name: Model name (REQUIRED, validated by schema)
         tokenizer_revision: Git revision or None
 
     Returns:
@@ -164,11 +176,7 @@ async def get_or_load_tokenizer(
     Raises:
         TokenizerLoadError: If tokenizer cannot be loaded
     """
-    if tokenizer_name:
-        cache_key = (tokenizer_name, tokenizer_revision)
-    else:
-        cache_key = ("default", None)
-        logger.warning(f"[{rollout_id}] No tokenizer specified, using default Qwen3-8B")
+    cache_key = (tokenizer_name, tokenizer_revision)
 
     # First check without lock (fast path for cached tokenizers)
     tokenizer = app_state.tokenizer_cache.get(cache_key)
@@ -184,17 +192,16 @@ async def get_or_load_tokenizer(
             logger.debug(f"[{rollout_id}] Using cached tokenizer (loaded by another request): {cache_key[0]}")
             return tokenizer
 
-        logger.info(f"[{rollout_id}] Loading tokenizer: {cache_key[0]}")
-        tokenizer_name_to_load = cache_key[0] if cache_key[0] != "default" else "Qwen/Qwen3-8B"
+        logger.info(f"[{rollout_id}] Loading tokenizer: {tokenizer_name}")
 
         try:
             # Load tokenizer in thread pool to avoid blocking event loop
             tokenizer = await asyncio.to_thread(
-                load_tokenizer, tokenizer_name_to_load, cache_key[1]
+                load_tokenizer, tokenizer_name, tokenizer_revision
             )
         except Exception as e:
             logger.error(f"[{rollout_id}] Failed to load tokenizer: {e}")
-            raise TokenizerLoadError(f"Failed to load tokenizer: {tokenizer_name_to_load}") from e
+            raise TokenizerLoadError(f"Failed to load tokenizer: {tokenizer_name}") from e
 
         # Store in LRU cache
         app_state.tokenizer_cache[cache_key] = tokenizer

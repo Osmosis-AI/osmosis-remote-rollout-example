@@ -157,7 +157,17 @@ async def handle_rollout(request: RolloutRequest) -> RolloutResponse:
     # Wrap entire rollout in timeout
     try:
         async with asyncio.timeout(settings.rollout_timeout_seconds):
-            return await execute_rollout(request)
+            response = await execute_rollout(request)
+            metrics_summary = response.metrics.model_dump() if response.metrics else {}
+            logger.info(
+                f"[{rollout_id}] Rollout completed: "
+                f"status={response.status.value}, "
+                f"finish_reason={response.finish_reason}, "
+                f"error={response.error_message}, "
+                f"metrics={metrics_summary}, "
+                f"extra_fields={response.extra_fields}"
+            )
+            return response
     except TimeoutError:
         logger.error(f"[{rollout_id}] Rollout timeout after {settings.rollout_timeout_seconds}s")
         return RolloutResponse(

@@ -334,7 +334,7 @@ Reference: Remote Rollout Design Documentation, Section 11
 | `ROLLOUT_SERVER_PORT`         | `9000`  | Server port                    |
 | `TOKENIZER_CACHE_SIZE`        | `5`     | Max tokenizers in LRU cache    |
 | `HTTP_CLIENT_TIMEOUT`         | `300.0` | HTTP request timeout (seconds) |
-| `TOKENIZER_TRUST_REMOTE_CODE` | `false` | Allow custom tokenizer code    |
+| `TOKENIZER_TRUST_REMOTE_CODE` | `true`  | Allow custom tokenizer code    |
 
 ### Trainer Callback Ports
 

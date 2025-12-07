@@ -131,8 +131,14 @@ class RolloutRequest(BaseModel):
     # Callback authentication
     callback_api_key: Optional[str] = None  # API key for authenticating callbacks to server_url
 
-    # Tokenizer information for validation
-    tokenizer_name: Optional[str] = None  # e.g., "Qwen/Qwen3-8B"
+    # Tokenizer information (REQUIRED)
+    # RolloutServer MUST use the EXACT same tokenizer as the training cluster
+    # for correct response_mask calculation. Mismatched tokenizers will cause
+    # token count errors and corrupt training data.
+    tokenizer_name: str = Field(
+        ...,
+        description="Tokenizer name (e.g., 'Qwen/Qwen3-8B'). MUST match trainer's tokenizer!"
+    )
     tokenizer_revision: Optional[str] = None  # e.g., "main" or git commit hash
 
     @field_validator('rollout_id')
