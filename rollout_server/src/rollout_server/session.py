@@ -72,7 +72,7 @@ class RolloutSession:
         Args:
             rollout_id: Unique rollout identifier (UUID)
             tokenizer: Tokenizer instance (must match trainer's tokenizer!)
-            server_url: Trainer's /v1/completions endpoint URL
+            server_url: Trainer's /v1/chat/completions endpoint URL
             http_client: Optional httpx.AsyncClient for HTTP requests
             callback_api_key: Optional API key for authenticating callbacks to server_url
         """
@@ -111,7 +111,7 @@ class RolloutSession:
         2. Calculate mask for tokens added since last call
            - If last_prompt_length > 0: new tokens are tool outputs (mask=0)
            - If last_prompt_length == 0: first turn, no mask needed
-        3. Call trainer's /v1/completions with EXPLICIT mask
+        3. Call trainer's /v1/chat/completions with EXPLICIT mask
         4. Update last_prompt_length with current_prompt + LLM response
 
         Args:
@@ -164,7 +164,7 @@ class RolloutSession:
             response_mask = None
             logger.debug(f"[{self.rollout_id}] Turn 1: No response_mask (first turn)")
 
-        # 3. Call trainer's /v1/completions with EXPLICIT mask
+        # 3. Call trainer's /v1/chat/completions with EXPLICIT mask
         request = CompletionsRequest(
             rollout_id=self.rollout_id,
             messages=[Message(**msg) for msg in self.messages],
@@ -173,7 +173,7 @@ class RolloutSession:
         )
 
         logger.info(
-            f"[{self.rollout_id}] Calling /v1/completions: "
+            f"[{self.rollout_id}] Calling /v1/chat/completions: "
             f"prompt_length={current_prompt_length}, "
             f"response_mask={'None' if response_mask is None else f'[{len(response_mask)} zeros]'}"
         )
@@ -184,7 +184,7 @@ class RolloutSession:
             headers["Authorization"] = f"Bearer {self.callback_api_key}"
 
         response = await self.http_client.post(
-            f"{self.server_url}/v1/completions",
+            f"{self.server_url}/v1/chat/completions",
             json=request.model_dump(),
             headers=headers
         )
