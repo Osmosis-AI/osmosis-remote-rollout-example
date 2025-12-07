@@ -277,7 +277,7 @@ cd rollout_server
 ./scripts/start_test_environment.sh
 
 # Run E2E tests
-uv run pytest examples/e2e_test_with_servers.py -v
+uv run python examples/e2e_test_with_servers.py
 
 # Stop the environment when done
 ./scripts/stop_test_environment.sh
@@ -331,7 +331,7 @@ ROLLOUT_SERVER_PORT=9100 uv run python -m rollout_server.server
 
 ```bash
 cd rollout_server
-uv run pytest examples/e2e_test_with_servers.py -v
+uv run python examples/e2e_test_with_servers.py
 ```
 
 **Option B: FastAPI Docs UI**
@@ -514,7 +514,7 @@ uv run python -m tests.mocks.mock_trainer
 uv run python -m rollout_server.server
 
 # Terminal 3: Run E2E tests
-uv run pytest examples/e2e_test_with_servers.py -v
+uv run python examples/e2e_test_with_servers.py
 ```
 
 #### Mock Infrastructure

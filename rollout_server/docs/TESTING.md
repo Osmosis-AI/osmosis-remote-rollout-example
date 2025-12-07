@@ -34,7 +34,7 @@ cd rollout_server
 #   API Docs:       http://localhost:9000/docs
 
 # Run E2E tests
-uv run pytest examples/e2e_test_with_servers.py -v
+uv run python examples/e2e_test_with_servers.py
 
 # Or test via API docs UI
 # Open http://localhost:9000/docs in your browser
@@ -84,7 +84,7 @@ This starts the rollout server on port 9000.
 
 ```bash
 cd rollout_server
-uv run pytest examples/e2e_test_with_servers.py -v
+uv run python examples/e2e_test_with_servers.py
 ```
 
 #### Option B: Use FastAPI Docs UI

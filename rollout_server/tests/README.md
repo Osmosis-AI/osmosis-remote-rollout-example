@@ -59,7 +59,7 @@ python -m rollout_server.tests.mocks.mock_trainer
 python -m rollout_server.server
 
 # Terminal 3: Run E2E tests
-pytest examples/e2e_test_with_servers.py -v
+uv run python examples/e2e_test_with_servers.py
 ```
 
 **Note**: If servers are not running, tests will be skipped (not fail).
@@ -84,7 +84,7 @@ pytest tests/ -v --cov=rollout_server
 ### For Manual Validation
 ```bash
 # Start servers first, then run E2E tests
-pytest examples/e2e_test_with_servers.py -v
+uv run python examples/e2e_test_with_servers.py
 ```
 
 ### For Specific Test Types
