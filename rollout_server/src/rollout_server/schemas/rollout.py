@@ -1,0 +1,209 @@
+"""Rollout request/response schemas for the Remote Rollout Protocol.
+
+These schemas define the contract between OsmosisAgentLoop and RolloutServer.
+"""
+
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field, field_validator
+
+from rollout_server.schemas.messages import Message
+from rollout_server.schemas.params import SamplingParams
+
+
+# =============================================================================
+# Rollout Status and Metrics
+# =============================================================================
+
+
+class RolloutStatus(str, Enum):
+    """Status returned by RolloutServer indicating rollout outcome."""
+
+    COMPLETED = "COMPLETED"  # Rollout finished successfully
+    ERROR = "ERROR"  # Rollout failed with error
+
+
+class RolloutMetrics(BaseModel):
+    """Metrics from rollout execution.
+
+    num_turns Semantics
+    ───────────────────
+    `num_llm_calls` counts the number of LLM generation calls made during the rollout.
+    This value is used by OsmosisAgentLoop to populate `AgentLoopOutput.num_turns`,
+    which is consistent with verl's training pipeline expectations.
+
+    Example:
+        User: "Calculate 15*23"
+        Turn 1: LLM generates "I'll use calculator" + tool_call  → num_llm_calls=1
+        Turn 2: LLM generates "The result is 345"                → num_llm_calls=2
+
+    Note: This differs from verl's local ToolAgentLoop which tracks
+    `assistant_turns` and `user_turns` separately. For remote rollout,
+    we use a single counter (num_llm_calls) for simplicity, as RolloutServer
+    has full control over termination logic.
+
+    Reference: traingate/integrations/verl/schemas.py - RolloutMetrics
+    """
+
+    total_latency_ms: float = 0.0
+    llm_latency_ms: float = 0.0
+    tool_latency_ms: float = 0.0
+    num_llm_calls: int = 0  # Number of LLM generation calls (== num_turns in AgentLoopOutput)
+    num_tool_calls: int = 0
+    prompt_tokens: int = 0
+    response_tokens: int = 0
+    max_context_tokens: int = 0
+
+
+# =============================================================================
+# Rollout Request/Response
+# =============================================================================
+
+
+class RolloutRequest(BaseModel):
+    """Request sent to POST /rollout to initiate a complete rollout.
+
+    OsmosisAgentLoop sends this request and waits for RolloutServer to complete
+    the entire agent loop. RolloutServer calls back to server_url/v1/chat/completions
+    for LLM generation.
+
+    Termination Control
+    ───────────────────
+    `max_turns` and `max_tokens_total` are **advisory parameters**. RolloutServer
+    has full control over termination logic and may implement more sophisticated
+    strategies (e.g., budget-based, task-completion-based, error-rate-based).
+
+    This differs from verl's local ToolAgentLoop which uses `max_assistant_turns`
+    and `max_user_turns` as separate counters. Remote rollout intentionally uses
+    a single `max_turns` for simplicity, as RolloutServer can implement any
+    termination logic internally.
+
+    metadata Field
+    ──────────────
+    The `metadata` field allows passing optional fine-grained control parameters
+    to RolloutServer. RolloutServer may choose to honor these or ignore them.
+
+    Supported optional metadata keys (implementation-dependent):
+    - `max_assistant_turns`: Max LLM generation calls (int)
+    - `max_user_turns`: Max tool/user input turns (int)
+    - `termination_strategy`: Custom termination logic identifier (str)
+    - `budget_tokens`: Token budget for the entire rollout (int)
+
+    Example:
+        metadata = {
+            "max_assistant_turns": 5,
+            "max_user_turns": 5,
+            "termination_strategy": "task_completion"
+        }
+
+    Note: These are optional hints. RolloutServer implementations are not
+    required to support them. Core termination is controlled by `max_turns`
+    and `max_tokens_total`.
+
+    Specification: docs/rollout_server.md Section 3.1
+    Reference: traingate/integrations/verl/schemas.py - RolloutRequest
+    """
+
+    rollout_id: str = Field(..., description="Unique rollout identifier (UUID format)")
+    server_url: str = Field(..., description="Trainer's /v1/chat/completions endpoint URL")
+    messages: List[Message] = Field(..., min_length=1)  # Initial conversation messages (at least 1)
+    sampling_params: SamplingParams
+    tool_server_url: Optional[str] = None
+
+    max_turns: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Advisory: max LLM calls (RolloutServer may override)"
+    )
+    max_tokens_total: int = Field(
+        default=8192,
+        ge=1,
+        le=1_000_000,
+        description="Advisory: max total tokens"
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional fine-grained control parameters"
+    )
+
+    # Callback authentication
+    callback_api_key: Optional[str] = None  # API key for authenticating callbacks to server_url
+
+    # Tokenizer information (REQUIRED)
+    # RolloutServer MUST use the EXACT same tokenizer as the training cluster
+    # for correct response_mask calculation. Mismatched tokenizers will cause
+    # token count errors and corrupt training data.
+    tokenizer_name: str = Field(
+        ...,
+        description="Tokenizer name (e.g., 'Qwen/Qwen3-8B'). MUST match trainer's tokenizer!"
+    )
+    tokenizer_revision: Optional[str] = None  # e.g., "main" or git commit hash
+
+    @field_validator('rollout_id')
+    @classmethod
+    def validate_rollout_id(cls, v: str) -> str:
+        """Validate rollout_id is non-empty.
+
+        Note: We accept any non-empty string format to be compatible with various
+        training systems that use formats like "{job_id}-step{step}-idx{index}-{uuid[:8]}".
+        """
+        if not v or not v.strip():
+            raise ValueError("rollout_id must be non-empty")
+        # Limit length to prevent DoS
+        if len(v) > 256:
+            raise ValueError("rollout_id must be at most 256 characters")
+        return v
+
+    @field_validator('server_url')
+    @classmethod
+    def validate_server_url(cls, v: str) -> str:
+        """Validate server_url is a valid HTTP/HTTPS URL.
+
+        Note: This server is designed for internal training infrastructure use.
+        The server_url is provided by trusted training components, not external users.
+        Private/internal IPs are allowed since trainers typically run on private networks.
+        """
+        if not v.startswith(('http://', 'https://')):
+            raise ValueError(
+                f"server_url must be an HTTP/HTTPS URL, got: {v}"
+            )
+
+        # Remove trailing slash for consistency
+        return v.rstrip('/')
+
+
+class RolloutResponse(BaseModel):
+    """Response from RolloutServer after completing the rollout.
+
+    Contains the final messages and status. Token tracking data is accumulated
+    in SessionManager via /v1/chat/completions requests during the rollout.
+
+    num_turns in AgentLoopOutput
+    ────────────────────────────
+    OsmosisAgentLoop uses `metrics.num_llm_calls` from this response to populate
+    `AgentLoopOutput.num_turns`. This ensures consistency with verl's training
+    pipeline which expects `num_turns` to represent the number of LLM generations.
+
+    finish_reason Values
+    ────────────────────
+    Standard values (RolloutServer should use these for consistency):
+    - "stop": LLM generated response without tool calls (natural completion)
+    - "max_turns": Reached max_turns limit
+    - "max_tokens": Reached max_tokens_total limit
+    - "error": Rollout failed (check error_message)
+    - Custom values: RolloutServer may define additional finish reasons
+
+    Specification: docs/rollout_server.md Section 3.1
+    Reference: traingate/integrations/verl/schemas.py - RolloutResponse
+    """
+
+    rollout_id: str  # Echoed back for correlation
+    status: RolloutStatus  # COMPLETED or ERROR
+    final_messages: List[Message] = Field(default_factory=list)
+    finish_reason: Optional[str] = None  # See docstring for standard values
+    error_message: Optional[str] = None
+    metrics: Optional[RolloutMetrics] = None  # Contains num_llm_calls for num_turns
+    extra_fields: Dict[str, Any] = Field(default_factory=dict)
+

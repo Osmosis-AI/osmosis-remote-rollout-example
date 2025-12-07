@@ -91,6 +91,45 @@ async def test_rollout_health_endpoint():
 
 @pytest.mark.asyncio
 @pytest.mark.integration
+async def test_tools_endpoint():
+    """Test GET /tools endpoint returns available tool definitions.
+
+    This endpoint is called once at worker startup by the training cluster
+    to discover what tools are available for apply_chat_template().
+    """
+    client = TestClient(rollout_app)
+    response = client.get("/tools")
+
+    assert response.status_code == 200
+    data = response.json()
+
+    # Verify response structure
+    assert "tools" in data
+    assert isinstance(data["tools"], list)
+
+    # Verify at least one tool exists (calculator tools)
+    assert len(data["tools"]) > 0
+
+    # Verify tool structure follows OpenAI format
+    for tool in data["tools"]:
+        assert "type" in tool
+        assert tool["type"] == "function"
+        assert "function" in tool
+
+        func = tool["function"]
+        assert "name" in func
+        assert "description" in func
+        assert "parameters" in func
+
+        # Verify parameters follow JSON Schema format
+        params = func["parameters"]
+        assert params["type"] == "object"
+        assert "properties" in params
+        assert "required" in params
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
 async def test_rollout_with_invalid_request():
     """Test /rollout endpoint with invalid request."""
     client = TestClient(rollout_app)

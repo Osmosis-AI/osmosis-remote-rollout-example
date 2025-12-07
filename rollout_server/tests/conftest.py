@@ -197,11 +197,11 @@ def create_mock_trainer_app(
         mask_tracker: Optional dict with 'masks' list for tracking response_mask values
 
     Returns:
-        FastAPI app instance with /v1/completions endpoint
+        FastAPI app instance with /v1/chat/completions endpoint
     """
     app = FastAPI(title="Mock Trainer")
 
-    @app.post("/v1/completions")
+    @app.post("/v1/chat/completions")
     async def completions(request: CompletionsRequest) -> CompletionsResponse:
         """Mock completions endpoint that simulates LLM responses."""
         # Track response_mask if tracker is provided
@@ -239,8 +239,8 @@ def patch_httpx_for_mock_trainer(
     original_post = httpx.AsyncClient.post
 
     async def mock_post(self, url: str, **kwargs):
-        if "/v1/completions" in url:
-            response = client.post("/v1/completions", **kwargs)
+        if "/v1/chat/completions" in url:
+            response = client.post("/v1/chat/completions", **kwargs)
             mock_response = httpx.Response(
                 status_code=response.status_code,
                 json=response.json(),
@@ -268,7 +268,7 @@ def mock_trainer_app(tokenizer: PreTrainedTokenizer) -> FastAPI:
         tokenizer: Session-scoped tokenizer fixture
 
     Returns:
-        FastAPI app instance with /v1/completions endpoint
+        FastAPI app instance with /v1/chat/completions endpoint
     """
     return create_mock_trainer_app(tokenizer)
 
@@ -281,7 +281,7 @@ def mock_trainer_client(
     """Create TestClient for mock trainer and monkey-patch httpx calls.
 
     This fixture sets up the mock trainer and patches httpx.AsyncClient.post
-    to route /v1/completions calls to the mock trainer.
+    to route /v1/chat/completions calls to the mock trainer.
 
     Args:
         mock_trainer_app: Mock trainer FastAPI app fixture

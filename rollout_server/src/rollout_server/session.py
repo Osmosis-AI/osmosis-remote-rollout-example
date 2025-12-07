@@ -20,7 +20,6 @@ Reference: docs/rollout_server.md Section 4 (Response Mask Management)
 from __future__ import annotations
 
 import logging
-import warnings
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type
 
@@ -72,7 +71,7 @@ class RolloutSession:
         Args:
             rollout_id: Unique rollout identifier (UUID)
             tokenizer: Tokenizer instance (must match trainer's tokenizer!)
-            server_url: Trainer's /v1/completions endpoint URL
+            server_url: Trainer's /v1/chat/completions endpoint URL
             http_client: Optional httpx.AsyncClient for HTTP requests
             callback_api_key: Optional API key for authenticating callbacks to server_url
         """
@@ -111,7 +110,7 @@ class RolloutSession:
         2. Calculate mask for tokens added since last call
            - If last_prompt_length > 0: new tokens are tool outputs (mask=0)
            - If last_prompt_length == 0: first turn, no mask needed
-        3. Call trainer's /v1/completions with EXPLICIT mask
+        3. Call trainer's /v1/chat/completions with EXPLICIT mask
         4. Update last_prompt_length with current_prompt + LLM response
 
         Args:
@@ -164,7 +163,7 @@ class RolloutSession:
             response_mask = None
             logger.debug(f"[{self.rollout_id}] Turn 1: No response_mask (first turn)")
 
-        # 3. Call trainer's /v1/completions with EXPLICIT mask
+        # 3. Call trainer's /v1/chat/completions with EXPLICIT mask
         request = CompletionsRequest(
             rollout_id=self.rollout_id,
             messages=[Message(**msg) for msg in self.messages],
@@ -173,7 +172,7 @@ class RolloutSession:
         )
 
         logger.info(
-            f"[{self.rollout_id}] Calling /v1/completions: "
+            f"[{self.rollout_id}] Calling /v1/chat/completions: "
             f"prompt_length={current_prompt_length}, "
             f"response_mask={'None' if response_mask is None else f'[{len(response_mask)} zeros]'}"
         )
@@ -184,7 +183,7 @@ class RolloutSession:
             headers["Authorization"] = f"Bearer {self.callback_api_key}"
 
         response = await self.http_client.post(
-            f"{self.server_url}/v1/completions",
+            f"{self.server_url}/v1/chat/completions",
             json=request.model_dump(),
             headers=headers
         )
@@ -239,46 +238,3 @@ class RolloutSession:
         if self._owns_client and self.http_client:
             await self.http_client.aclose()
             self.http_client = None  # Prevent double-close
-
-
-# =============================================================================
-# DEPRECATED: Alternative Implementation
-# =============================================================================
-
-
-class RolloutSessionExplicit:
-    """DEPRECATED: Alternative implementation with explicit token tracking.
-
-    ⚠️  WARNING: This class is deprecated due to incorrect token counting logic.
-    ⚠️  DO NOT USE. Use RolloutSession instead.
-
-    KNOWN BUGS:
-    - Uses tokenizer.encode() instead of apply_chat_template()
-    - Token counts will not match chat format, causing mask length mismatches
-    - Will corrupt training data if used in production
-
-    This class is kept for reference only and will be removed in a future version.
-    If you need explicit token tracking, implement it correctly using
-    apply_chat_template() as shown in RolloutSession.
-
-    Reason for deprecation:
-    The original implementation in append_tool_outputs() used:
-        token_ids = self.tokenizer.encode(content, add_special_tokens=False)
-    This does not account for chat template formatting, leading to incorrect
-    token counts and response_mask length mismatches.
-
-    Reference: See RolloutSession for correct implementation pattern.
-    """
-
-    def __init__(self, *args, **kwargs):
-        """Emit deprecation warning and raise NotImplementedError."""
-        warnings.warn(
-            "RolloutSessionExplicit is deprecated due to token counting bugs. "
-            "Use RolloutSession instead. "
-            "See session.py docstring for details on why this class is unsafe.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        raise NotImplementedError(
-            "RolloutSessionExplicit is deprecated. Use RolloutSession instead."
-        )
