@@ -1,7 +1,6 @@
 # Response Mask Guide - The Most Critical Part of Remote Rollout
 
 **Status**: CRITICAL READING
-**Last Updated**: 2025-12-04
 
 ## Table of Contents
 
@@ -117,7 +116,7 @@ response_mask: [1, 1, 1, 0, 0]                   (5 values) ← Wrong length!
 
 ## Correct Implementation Pattern
 
-### The Reference Pattern (from docs/rollout_server.md:305-350)
+### The Reference Pattern
 
 ```python
 class RolloutSession:

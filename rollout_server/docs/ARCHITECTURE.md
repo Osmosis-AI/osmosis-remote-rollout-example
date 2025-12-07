@@ -1,7 +1,5 @@
 # System Architecture
 
-**Last Updated**: 2025-12-06
-
 ## Overview
 
 The Remote Rollout Server is a reference implementation that demonstrates the callback-based protocol for agent trajectory generation in distributed RL training environments.
@@ -135,17 +133,60 @@ Async calculator tools that simulate real-world tool execution.
 - Parallel execution using `asyncio.gather()`
 - JSON argument parsing
 
-### 4. Schemas (`schemas.py`)
+### 4. Schemas (`schemas/`)
 
-Pydantic models for protocol data structures.
+Modular Pydantic models for protocol data structures, organized by responsibility.
+
+**Module Structure:**
+
+| Module | Contents |
+|--------|----------|
+| `schemas/__init__.py` | Re-exports all public schemas |
+| `schemas/messages.py` | `Message`, `ToolCall`, `ToolDefinition`, `ToolsResponse` |
+| `schemas/params.py` | `SamplingParams` |
+| `schemas/rollout.py` | `RolloutRequest`, `RolloutResponse`, `RolloutMetrics`, `RolloutStatus` |
+| `schemas/completions.py` | `CompletionsRequest`, `CompletionsResponse`, `CompletionsChoice` |
+| `schemas/constants.py` | Shared constants (`VALID_MESSAGE_ROLES`, `MAX_TOKENS_LIMIT`, etc.) |
 
 **Key Models:**
 
-- `RolloutRequest` - Input to `/rollout` endpoint
-- `RolloutResponse` - Output with final messages and status
-- `RolloutMetrics` - Performance metrics (latency, token counts)
-- `Message` - Conversation message format
+- `RolloutRequest` - Input to `/rollout` endpoint (includes `callback_api_key` for auth)
+- `RolloutResponse` - Output with final messages, status, and metrics
+- `RolloutMetrics` - Performance metrics (latency, token counts, `num_llm_calls`)
+- `Message` - Conversation message format with tool_calls support
 - `SamplingParams` - LLM sampling configuration
+- `ToolsResponse` - Response format for `GET /tools` endpoint
+
+### 5. Configuration (`config.py`)
+
+Centralized configuration management with environment variable support.
+
+**Key Settings:**
+
+| Setting | Env Variable | Default | Description |
+|---------|--------------|---------|-------------|
+| `server_port` | `ROLLOUT_SERVER_PORT` | 9000 | Server port |
+| `tokenizer_cache_size` | `TOKENIZER_CACHE_SIZE` | 5 | Max tokenizers in LRU cache |
+| `http_client_timeout` | `HTTP_CLIENT_TIMEOUT` | 300.0 | HTTP timeout (seconds) |
+| `tokenizer_trust_remote_code` | `TOKENIZER_TRUST_REMOTE_CODE` | true | Allow custom tokenizer code |
+| `max_concurrent_rollouts` | `MAX_CONCURRENT_ROLLOUTS` | 100 | Rate limiting |
+
+### 6. Executor (`executor.py`)
+
+Core rollout execution logic extracted from server.py for maintainability.
+
+**Responsibilities:**
+
+- Application state management (`AppState` class)
+- Tokenizer loading with async-safe LRU caching
+- Core rollout execution with `response_mask` tracking
+- Error handling and metrics collection
+
+**Key Components:**
+
+- `AppState`: Manages HTTP client, tokenizer cache, rate limiting semaphore
+- `execute_rollout()`: Main entry point with rate limiting
+- `get_or_load_tokenizer()`: Async-safe tokenizer loading with double-checked locking
 
 ## Data Flow
 
@@ -282,7 +323,7 @@ RolloutRequest(
 
 **Note**: These are optional hints. This implementation does not currently use them, but custom RolloutServer implementations may choose to support them.
 
-Reference: [traingate/docs/remote_rollout_design.md](https://github.com/Osmosis-AI/traingate) Section 11
+Reference: Remote Rollout Design Documentation, Section 11
 
 ## Configuration
 

@@ -7,10 +7,18 @@ Public API:
 - RolloutSession: Manages a single rollout session with response_mask tracking
 - app: FastAPI application instance
 - Schemas: Message, RolloutRequest, RolloutResponse, etc.
+- Exceptions: RolloutError, TokenizerLoadError, ToolExecutionError, etc.
 """
 
 from importlib.metadata import version, PackageNotFoundError
 
+from rollout_server.exceptions import (
+    RolloutError,
+    TokenizerLoadError,
+    ToolExecutionError,
+    RateLimitExceededError,
+    RolloutTimeoutError,
+)
 from rollout_server.schemas import (
     CompletionsChoice,
     CompletionsRequest,
@@ -26,12 +34,21 @@ from rollout_server.schemas import (
 )
 from rollout_server.server import app
 from rollout_server.session import RolloutSession
+from rollout_server.executor import app_state, execute_rollout
 
 __all__ = [
     # FastAPI app
     "app",
-    # Session management
+    # Session and executor
     "RolloutSession",
+    "app_state",
+    "execute_rollout",
+    # Exceptions
+    "RolloutError",
+    "TokenizerLoadError",
+    "ToolExecutionError",
+    "RateLimitExceededError",
+    "RolloutTimeoutError",
     # Schemas
     "CompletionsChoice",
     "CompletionsRequest",

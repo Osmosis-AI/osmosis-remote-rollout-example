@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""End-to-end test script with real servers.
+"""Interactive demo script showing the complete rollout flow.
 
-This script demonstrates the complete rollout flow with real running servers.
-It provides detailed logging to help understand the system behavior.
+This script demonstrates the Remote Rollout Protocol with real running servers,
+providing detailed logging to help understand the system behavior.
+
+NOTE: For automated E2E testing, use:
+    uv run pytest tests/e2e/ -v -m requires_servers
+
+This script is intended for interactive exploration and debugging.
 
 Usage:
-    1. Start mock trainer: python -m rollout_server.tests.mocks.mock_trainer
+    1. Start mock trainer: python -m tests.mocks.mock_trainer
     2. Start rollout server: python -m rollout_server.server
     3. Run this script: python examples/e2e_test_with_servers.py
 

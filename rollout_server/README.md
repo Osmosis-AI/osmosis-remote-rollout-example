@@ -136,9 +136,11 @@ uv run pytest --cov=rollout_server
 | Component | File | Purpose |
 |-----------|------|---------|
 | **RolloutSession** | `src/rollout_server/session.py` | **CRITICAL** - Manages response_mask calculation |
-| **FastAPI Server** | `src/rollout_server/server.py` | POST /rollout endpoint |
+| **FastAPI Server** | `src/rollout_server/server.py` | POST /rollout and GET /tools endpoints |
+| **Executor** | `src/rollout_server/executor.py` | Core rollout execution logic |
 | **Calculator Tools** | `src/rollout_server/tools/calculator.py` | Async tools with random delays |
-| **Schemas** | `src/rollout_server/schemas.py` | Protocol data structures |
+| **Schemas** | `src/rollout_server/schemas/` | Protocol data structures (modular) |
+| **Config** | `src/rollout_server/config.py` | Centralized configuration |
 
 ### CRITICAL: Response Mask Handling
 
@@ -161,7 +163,7 @@ See [`docs/RESPONSE_MASK_GUIDE.md`](docs/RESPONSE_MASK_GUIDE.md) for detailed ex
 
 ## Implementation Pattern
 
-The correct response_mask calculation pattern (from `docs/rollout_server.md:305-350`):
+The correct response_mask calculation pattern:
 
 ```python
 class RolloutSession:
@@ -245,14 +247,17 @@ RolloutRequest(
 )
 ```
 
-See [traingate docs/remote_rollout_design.md](https://github.com/Osmosis-AI/traingate) Section 11 for detailed comparison with local mode.
+See the protocol documentation for detailed comparison with local mode.
 
 ## Documentation
 
-- **[README.md](README.md)** (this file) - Quick start and overview
-- **[docs/RESPONSE_MASK_GUIDE.md](docs/RESPONSE_MASK_GUIDE.md)** - **CRITICAL** - Deep dive on response_mask
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design and data flow
-- **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Production deployment guide
+| Document | Description |
+|----------|-------------|
+| **[README.md](README.md)** | Quick start and overview (this file) |
+| **[docs/RESPONSE_MASK_GUIDE.md](docs/RESPONSE_MASK_GUIDE.md)** | **CRITICAL** - Deep dive on response_mask |
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | System design, components, and data flow |
+| **[docs/TESTING.md](docs/TESTING.md)** | Complete testing documentation |
+| **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** | Production deployment guide |
 
 ## Examples
 
@@ -264,269 +269,42 @@ See [traingate docs/remote_rollout_design.md](https://github.com/Osmosis-AI/trai
 
 ## Testing
 
-### Testing with Mock Trainer
-
-The `/rollout` endpoint requires a trainer's `/v1/chat/completions` endpoint to function. For standalone testing without a real training cluster, use the mock trainer:
-
-#### Quick Start: One-Command Test Environment
+### Quick Start
 
 ```bash
 cd rollout_server
 
-# Start both mock trainer and rollout server
-./scripts/start_test_environment.sh
-
-# Run E2E tests
-uv run python examples/e2e_test_with_servers.py
-
-# Stop the environment when done
-./scripts/stop_test_environment.sh
-```
-
-This script automatically:
-- Starts the mock trainer on port 9001
-- Starts the rollout server on port 9000
-- Verifies both services are healthy
-- Saves logs to `logs/` directory
-- Creates a PID file for easy cleanup
-
-#### Step 1: Start the Mock Trainer
-
-```bash
-cd rollout_server
-
-# Start mock trainer (port 9001 by default)
-uv run python -m tests.mocks.mock_trainer
-
-# Or specify custom port:
-MOCK_TRAINER_PORT=9002 uv run python -m tests.mocks.mock_trainer
-```
-
-You should see:
-```
-============================================================
-Starting Mock Trainer Server on port 9001
-This server simulates the trainer's /v1/chat/completions endpoint
-for testing RolloutServer independently.
-============================================================
-```
-
-#### Step 2: Start the Rollout Server
-
-In a new terminal:
-
-```bash
-cd rollout_server
-
-# Start rollout server (port 9000 by default)
-uv run python -m rollout_server.server
-
-# Or specify custom port:
-ROLLOUT_SERVER_PORT=9100 uv run python -m rollout_server.server
-```
-
-#### Step 3: Run Tests
-
-**Option A: Run E2E Tests**
-
-```bash
-cd rollout_server
-uv run python examples/e2e_test_with_servers.py
-```
-
-**Option B: FastAPI Docs UI**
-
-1. Open http://localhost:9000/docs in your browser
-2. Navigate to `POST /rollout`
-3. Click "Try it out"
-4. Use this test payload:
-
-```json
-{
-  "rollout_id": "test-rollout-001",
-  "server_url": "http://localhost:9001",
-  "messages": [
-    {
-      "role": "system",
-      "content": "You are a helpful calculator assistant with access to calculator tools."
-    },
-    {
-      "role": "user",
-      "content": "Please calculate 5 plus 3."
-    }
-  ],
-  "sampling_params": {
-    "temperature": 0.7,
-    "top_p": 0.9,
-    "max_tokens": 512,
-    "logprobs": true
-  },
-  "tokenizer_name": "Qwen/Qwen3-8B",
-  "max_turns": 10,
-  "max_tokens_total": 8192
-}
-```
-
-**IMPORTANT**: The `server_url` field MUST point to the mock trainer (e.g., `http://localhost:9001`).
-
-5. Click "Execute"
-6. Check the response - you should see status: "COMPLETED"
-
-**Option C: Using curl**
-
-```bash
-curl -X POST http://localhost:9000/rollout \
-  -H "Content-Type: application/json" \
-  -d '{
-    "rollout_id": "test-rollout-001",
-    "server_url": "http://localhost:9001",
-    "messages": [
-      {
-        "role": "system",
-        "content": "You are a helpful calculator assistant with access to calculator tools."
-      },
-      {
-        "role": "user",
-        "content": "Please calculate 5 plus 3."
-      }
-    ],
-    "sampling_params": {
-      "temperature": 0.7,
-      "top_p": 0.9,
-      "max_tokens": 512,
-      "logprobs": true
-    },
-    "tokenizer_name": "Qwen/Qwen3-8B",
-    "max_turns": 10,
-    "max_tokens_total": 8192
-  }'
-```
-
-#### Expected Successful Response
-
-```json
-{
-  "rollout_id": "test-rollout-001",
-  "status": "COMPLETED",
-  "finish_reason": "stop",
-  "final_messages": [
-    {
-      "role": "system",
-      "content": "You are a helpful calculator assistant with access to calculator tools."
-    },
-    {
-      "role": "user",
-      "content": "Please calculate 5 plus 3."
-    },
-    {
-      "role": "assistant",
-      "content": "I'll calculate that for you.",
-      "tool_calls": [
-        {
-          "id": "call_abc123",
-          "type": "function",
-          "function": {
-            "name": "add",
-            "arguments": "{\"a\": 5, \"b\": 3}"
-          }
-        }
-      ]
-    },
-    {
-      "role": "tool",
-      "content": "8",
-      "tool_call_id": "call_abc123"
-    },
-    {
-      "role": "assistant",
-      "content": "I'm a mock LLM. The calculation result should be in the previous message."
-    }
-  ]
-}
-```
-
-### Common Testing Errors and Solutions
-
-#### Error: Connection Refused / Network Error
-
-**Symptom**:
-```json
-{
-  "status": "ERROR",
-  "error_message": "Network error: ..."
-}
-```
-
-**Cause**: The `server_url` in your request points to an endpoint that's not running.
-
-**Solution**:
-- Make sure the mock trainer is running: `curl http://localhost:9001/health`
-- Verify `server_url` in your payload is `http://localhost:9001`
-
-#### Error: 422 Validation Error
-
-**Symptom**: FastAPI returns validation errors about missing fields.
-
-**Solution**: Check that your payload includes all required fields:
-- `rollout_id` (string)
-- `server_url` (string, valid URL)
-- `messages` (array of message objects)
-- `sampling_params` (object with temperature, top_p, max_tokens)
-
-### Test Suite
-
-This project has two types of tests:
-
-#### 1. Automated Tests (tests/)
-
-**Integration Tests** - Fast, in-process tests using FastAPI TestClient:
-- `tests/integration/test_rollout_api.py` - Full /rollout endpoint with mocked trainer
-- No external servers required
-- Runs in 2-3 seconds
-- **Use these for regular development and CI/CD**
-
-Run automated tests:
-```bash
-cd rollout_server
-
-# Run all automated tests
+# Run all automated tests (unit + integration)
 uv run pytest tests/ -v
 
 # Run with coverage
 uv run pytest tests/ --cov=rollout_server --cov-report=term-missing
 ```
 
-#### 2. E2E Tests (examples/)
+### Test Types
 
-**End-to-End Tests** - Tests with real running servers:
-- `examples/e2e_test_with_servers.py` - Requires servers on ports 9000 and 9001
-- Tests actual HTTP communication
-- **Use these for manual validation and debugging only**
+| Type | Location | Description |
+|------|----------|-------------|
+| **Unit Tests** | `tests/unit/` | Fast, isolated component tests |
+| **Integration Tests** | `tests/integration/` | In-process tests with mocked trainer |
+| **E2E Tests** | `tests/e2e/` | Requires running servers (ports 9000, 9001) |
 
-Run E2E tests:
+### Testing with Mock Trainer
+
+For E2E testing, use the one-command test environment:
+
 ```bash
-cd rollout_server
+# Start mock trainer + rollout server
+./scripts/start_test_environment.sh
 
-# Terminal 1: Start mock trainer
-uv run python -m tests.mocks.mock_trainer
+# Run E2E tests
+uv run pytest tests/e2e/ -v -m requires_servers
 
-# Terminal 2: Start rollout server
-uv run python -m rollout_server.server
-
-# Terminal 3: Run E2E tests
-uv run python examples/e2e_test_with_servers.py
+# Stop when done
+./scripts/stop_test_environment.sh
 ```
 
-#### Mock Infrastructure
-
-- `tests/mocks/mock_trainer.py` - Standalone mock trainer for E2E testing
-- Integration tests use in-process mocks (no standalone server needed)
-
-### Additional Testing Documentation
-
-For more detailed testing information, see:
-- [`tests/README.md`](tests/README.md) - Complete test suite documentation
-- [`docs/RESPONSE_MASK_GUIDE.md`](docs/RESPONSE_MASK_GUIDE.md) - Response mask validation
+For comprehensive testing documentation, see **[docs/TESTING.md](docs/TESTING.md)**.
 
 ## Protocol Reference
 
@@ -578,9 +356,13 @@ The trainer calls this endpoint once at worker startup to fetch available tool d
     "tokenizer_name": "Qwen/Qwen3-8B",
     "tokenizer_revision": "main",
     "max_turns": 10,
-    "max_tokens_total": 8192
+    "max_tokens_total": 8192,
+    "callback_api_key": "secret-key-123"  # Optional: API key for callback authentication
 }
 ```
+
+**Important Fields**:
+- `callback_api_key` (optional): API key for authenticating callbacks to `server_url/v1/chat/completions`. When provided, RolloutServer includes `Authorization: Bearer <callback_api_key>` header in all callback requests.
 
 ### CompletionsRequest (RolloutServer → Trainer)
 
@@ -595,6 +377,12 @@ The trainer calls this endpoint once at worker startup to fetch available tool d
     "max_tokens": 512,
     "logprobs": true
 }
+```
+
+**Authentication Header** (when `callback_api_key` provided in RolloutRequest):
+
+```
+Authorization: Bearer <callback_api_key>
 ```
 
 ## Common Pitfalls
@@ -664,17 +452,27 @@ osmosis-remote-rollout-example/
 └── rollout_server/
     ├── src/rollout_server/       # Source code
     │   ├── __init__.py
-    │   ├── server.py             # FastAPI server
-    │   ├── session.py            # RolloutSession (CRITICAL)
-    │   ├── schemas.py            # Protocol data structures
+    │   ├── server.py             # FastAPI server (POST /rollout, GET /tools)
+    │   ├── session.py            # RolloutSession (CRITICAL for response_mask)
+    │   ├── executor.py           # Core rollout execution logic
+    │   ├── config.py             # Centralized configuration
+    │   ├── exceptions.py         # Custom exception classes
+    │   ├── schemas/              # Protocol data structures (modular)
+    │   │   ├── __init__.py       # Re-exports all schemas
+    │   │   ├── messages.py       # Message, ToolCall, ToolDefinition
+    │   │   ├── params.py         # SamplingParams
+    │   │   ├── rollout.py        # RolloutRequest, RolloutResponse
+    │   │   ├── completions.py    # CompletionsRequest, CompletionsResponse
+    │   │   └── constants.py      # Shared constants
     │   └── tools/
     │       ├── __init__.py
     │       └── calculator.py     # Async calculator tools
     ├── examples/                 # Usage examples
     ├── tests/                    # Test suite
-    │   ├── unit/
-    │   ├── integration/
-    │   └── mocks/
+    │   ├── unit/                 # Unit tests
+    │   ├── integration/          # In-process integration tests
+    │   ├── e2e/                  # End-to-end tests (requires servers)
+    │   └── mocks/                # Mock infrastructure
     ├── docs/                     # Documentation
     ├── scripts/                  # Utility scripts
     ├── pyproject.toml            # uv configuration

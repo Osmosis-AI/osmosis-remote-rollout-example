@@ -20,7 +20,6 @@ Reference: docs/rollout_server.md Section 4 (Response Mask Management)
 from __future__ import annotations
 
 import logging
-import warnings
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type
 
@@ -239,46 +238,3 @@ class RolloutSession:
         if self._owns_client and self.http_client:
             await self.http_client.aclose()
             self.http_client = None  # Prevent double-close
-
-
-# =============================================================================
-# DEPRECATED: Alternative Implementation
-# =============================================================================
-
-
-class RolloutSessionExplicit:
-    """DEPRECATED: Alternative implementation with explicit token tracking.
-
-    ⚠️  WARNING: This class is deprecated due to incorrect token counting logic.
-    ⚠️  DO NOT USE. Use RolloutSession instead.
-
-    KNOWN BUGS:
-    - Uses tokenizer.encode() instead of apply_chat_template()
-    - Token counts will not match chat format, causing mask length mismatches
-    - Will corrupt training data if used in production
-
-    This class is kept for reference only and will be removed in a future version.
-    If you need explicit token tracking, implement it correctly using
-    apply_chat_template() as shown in RolloutSession.
-
-    Reason for deprecation:
-    The original implementation in append_tool_outputs() used:
-        token_ids = self.tokenizer.encode(content, add_special_tokens=False)
-    This does not account for chat template formatting, leading to incorrect
-    token counts and response_mask length mismatches.
-
-    Reference: See RolloutSession for correct implementation pattern.
-    """
-
-    def __init__(self, *args, **kwargs):
-        """Emit deprecation warning and raise NotImplementedError."""
-        warnings.warn(
-            "RolloutSessionExplicit is deprecated due to token counting bugs. "
-            "Use RolloutSession instead. "
-            "See session.py docstring for details on why this class is unsafe.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        raise NotImplementedError(
-            "RolloutSessionExplicit is deprecated. Use RolloutSession instead."
-        )

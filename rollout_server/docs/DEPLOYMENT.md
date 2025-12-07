@@ -1,7 +1,5 @@
 # Production Deployment Guide
 
-**Last Updated**: 2025-12-05
-
 ## Overview
 
 This guide covers deploying the Remote Rollout Server in production environments.
@@ -289,25 +287,64 @@ class JSONFormatter(logging.Formatter):
 - Use TLS for all external communications
 - Restrict access to known trainer IPs
 
-### 2. Tokenizer Security
+### 2. Callback Authentication
 
-```bash
-# Default: Disable remote code execution
-TOKENIZER_TRUST_REMOTE_CODE=false
+When the training cluster sends `callback_api_key` in `RolloutRequest`, the RolloutServer MUST include it as a Bearer token in all callbacks to `/v1/chat/completions`:
 
-# Only enable for verified models
-# TOKENIZER_TRUST_REMOTE_CODE=true  # DANGEROUS
+```python
+# RolloutRequest includes callback_api_key
+{
+    "rollout_id": "...",
+    "server_url": "http://trainer:8081",
+    "callback_api_key": "secret-key-123",  # Optional
+    ...
+}
+
+# RolloutServer adds Authorization header to callbacks
+headers = {}
+if callback_api_key:
+    headers["Authorization"] = f"Bearer {callback_api_key}"
+
+response = await httpx_client.post(
+    f"{server_url}/v1/chat/completions",
+    json=completions_request,
+    headers=headers
+)
 ```
 
-### 3. Input Validation
+**Trainer Configuration** (on training cluster):
+```yaml
+# Environment variable containing the callback API key
+callback_api_key_env: "CALLBACK_API_KEY"
+```
+
+**Best Practices**:
+- Use strong, randomly generated API keys
+- Store keys in environment variables, not config files
+- Rotate keys periodically
+- Use different keys per environment (dev/staging/prod)
+
+### 3. Tokenizer Security
+
+```bash
+# Default: Enable remote code for Qwen3 models
+TOKENIZER_TRUST_REMOTE_CODE=true
+
+# Only disable for standard tokenizers
+# TOKENIZER_TRUST_REMOTE_CODE=false
+```
+
+**Note**: Qwen3 and other models with custom tokenizer code require `trust_remote_code=True`.
+
+### 4. Input Validation
 
 The server validates all inputs via Pydantic:
-- `rollout_id` length limits
+- `rollout_id` length limits (max 256 chars)
 - `messages` non-empty requirement
-- URL format validation
+- URL format validation (HTTP/HTTPS only)
 - Numeric bounds checking
 
-### 4. Error Handling
+### 5. Error Handling
 
 - Internal errors return generic messages
 - No stack traces exposed to clients
