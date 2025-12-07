@@ -308,6 +308,15 @@ async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
     prompt_tokens = 0
     response_tokens = 0
 
+    debug_trace_enabled = bool(request.metadata.get("debug_trace"))
+    debug_trace: List[Dict[str, Any]] = []
+
+    def with_trace(extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        base = dict(extra or {})
+        if debug_trace_enabled:
+            base["trace"] = debug_trace
+        return base
+
     try:
         # Load tokenizer (MUST match trainer's tokenizer!)
         try:
@@ -317,14 +326,14 @@ async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
                 request.tokenizer_revision
             )
         except TokenizerLoadError as e:
-            return RolloutResponse(
-                rollout_id=rollout_id,
-                status=RolloutStatus.ERROR,
-                error_message=str(e),
-                final_messages=[],
-                extra_fields={"error_category": "tokenizer_error"},
-                metrics=create_metrics(start_time, 0, 0, 0, 0, 0, 0)
-            )
+                return RolloutResponse(
+                    rollout_id=rollout_id,
+                    status=RolloutStatus.ERROR,
+                    error_message=str(e),
+                    final_messages=[],
+                    extra_fields=with_trace({"error_category": "tokenizer_error"}),
+                    metrics=create_metrics(start_time, 0, 0, 0, 0, 0, 0)
+                )
 
         # Create session (manages response_mask calculation)
         session = RolloutSession(
@@ -367,6 +376,7 @@ async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
                     status=RolloutStatus.ERROR,
                     error_message=f"Invalid conversation state (possible context truncation): {e}",
                     final_messages=[],
+                    extra_fields=with_trace(),
                     metrics=create_metrics(
                         start_time, total_llm_latency_ms, total_tool_latency_ms,
                         num_llm_calls, num_tool_calls, prompt_tokens, response_tokens
@@ -382,6 +392,7 @@ async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
                     status=RolloutStatus.COMPLETED,
                     final_messages=[Message(**msg) for msg in session.messages],
                     finish_reason="max_tokens",
+                    extra_fields=with_trace(),
                     metrics=create_metrics(
                         start_time, total_llm_latency_ms, total_tool_latency_ms,
                         num_llm_calls, num_tool_calls, prompt_tokens, response_tokens, total_tokens
@@ -395,6 +406,18 @@ async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
             # 4. Check for tool calls
             tool_calls = parse_tool_calls(assistant_message)
             if not tool_calls:
+                if debug_trace_enabled:
+                    debug_trace.append({
+                        "turn": turn + 1,
+                        "llm_request": {
+                            "prompt_length": session.last_debug_info.get("prompt_length") if session.last_debug_info else None,
+                            "response_mask_len": len(session.last_debug_info["response_mask"]) if session.last_debug_info and session.last_debug_info.get("response_mask") is not None else None,
+                        },
+                        "assistant_message": assistant_message,
+                        "tool_calls": [],
+                        "tool_results": [],
+                        "llm_response_token_count": session.last_debug_info.get("llm_token_count") if session.last_debug_info else None,
+                    })
                 # No tool calls - conversation done
                 logger.info(f"[{rollout_id}] No tool calls, conversation complete")
                 return RolloutResponse(
@@ -402,6 +425,7 @@ async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
                     status=RolloutStatus.COMPLETED,
                     final_messages=[Message(**msg) for msg in session.messages],
                     finish_reason="stop",
+                    extra_fields=with_trace(),
                     metrics=create_metrics(
                         start_time, total_llm_latency_ms, total_tool_latency_ms,
                         num_llm_calls, num_tool_calls, prompt_tokens, response_tokens, total_tokens
@@ -411,9 +435,18 @@ async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
             # 5. Execute tools
             try:
                 tool_start = time.time()
-                logger.info(f"[{rollout_id}] Executing {len(tool_calls)} tool calls")
+                logger.info(f"[{rollout_id}] Executing {len(tool_calls)} tool calls:")
+                for idx, tc in enumerate(tool_calls):
+                    func_name = tc.get("function", {}).get("name", "unknown")
+                    func_args = tc.get("function", {}).get("arguments", "{}")
+                    logger.info(f"[{rollout_id}]   Tool[{idx}]: {func_name}({func_args})")
+
                 tool_results = await execute_calculator_calls(tool_calls)
                 tool_end = time.time()
+
+                logger.info(f"[{rollout_id}] Tool execution completed in {(tool_end - tool_start) * 1000:.2f}ms:")
+                for idx, result in enumerate(tool_results):
+                    logger.info(f"[{rollout_id}]   Result[{idx}]: {result.get('content', 'N/A')}")
 
                 # Update metrics
                 total_tool_latency_ms += (tool_end - tool_start) * 1000
@@ -426,6 +459,19 @@ async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
             # 6. Append tool outputs (session tracks for next response_mask)
             session.append_tool_outputs(tool_results)
 
+            if debug_trace_enabled:
+                debug_trace.append({
+                    "turn": turn + 1,
+                    "llm_request": {
+                        "prompt_length": session.last_debug_info.get("prompt_length") if session.last_debug_info else None,
+                        "response_mask_len": len(session.last_debug_info["response_mask"]) if session.last_debug_info and session.last_debug_info.get("response_mask") is not None else None,
+                    },
+                    "assistant_message": assistant_message,
+                    "tool_calls": tool_calls,
+                    "tool_results": tool_results,
+                    "llm_response_token_count": session.last_debug_info.get("llm_token_count") if session.last_debug_info else None,
+                })
+
         # Max turns reached
         logger.info(f"[{rollout_id}] Max turns reached")
         return RolloutResponse(
@@ -433,6 +479,7 @@ async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
             status=RolloutStatus.COMPLETED,
             final_messages=[Message(**msg) for msg in session.messages],
             finish_reason="max_turns",
+            extra_fields=with_trace(),
             metrics=create_metrics(
                 start_time, total_llm_latency_ms, total_tool_latency_ms,
                 num_llm_calls, num_tool_calls, prompt_tokens, response_tokens, total_tokens
@@ -451,7 +498,7 @@ async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
             status=RolloutStatus.ERROR,
             error_message="Network error communicating with trainer",
             final_messages=[],
-            extra_fields={"error_category": "network_error"},
+            extra_fields=with_trace({"error_category": "network_error"}),
             metrics=create_metrics(
                 start_time, total_llm_latency_ms, total_tool_latency_ms,
                 num_llm_calls, num_tool_calls, prompt_tokens, response_tokens
@@ -465,7 +512,7 @@ async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
             status=RolloutStatus.ERROR,
             error_message=str(e),
             final_messages=[],
-            extra_fields={"error_category": "tool_error"},
+            extra_fields=with_trace({"error_category": "tool_error"}),
             metrics=create_metrics(
                 start_time, total_llm_latency_ms, total_tool_latency_ms,
                 num_llm_calls, num_tool_calls, prompt_tokens, response_tokens
@@ -479,7 +526,7 @@ async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
             status=RolloutStatus.ERROR,
             error_message=f"Invalid request data: {e}",
             final_messages=[],
-            extra_fields={"error_category": "validation_error"},
+            extra_fields=with_trace({"error_category": "validation_error"}),
             metrics=create_metrics(
                 start_time, total_llm_latency_ms, total_tool_latency_ms,
                 num_llm_calls, num_tool_calls, prompt_tokens, response_tokens
@@ -494,7 +541,7 @@ async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
             status=RolloutStatus.ERROR,
             error_message="Internal server error",
             final_messages=[],
-            extra_fields={"error_category": "internal_error"},
+            extra_fields=with_trace({"error_category": "internal_error"}),
             metrics=create_metrics(
                 start_time, total_llm_latency_ms, total_tool_latency_ms,
                 num_llm_calls, num_tool_calls, prompt_tokens, response_tokens

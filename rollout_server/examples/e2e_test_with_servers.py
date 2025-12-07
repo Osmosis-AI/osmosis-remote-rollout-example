@@ -264,6 +264,34 @@ async def run_e2e_test():
         
         for i, msg in enumerate(final_messages):
             log_message(msg, i)
+
+        # Optional per-turn trace (set metadata.debug_trace=true)
+        trace = result.get("extra_fields", {}).get("trace", [])
+        if trace:
+            print()
+            log_header("Per-turn Trace (debug_trace)")
+            for entry in trace:
+                turn = entry.get("turn")
+                print(f"{Colors.BOLD}Turn {turn}{Colors.RESET}")
+                llm_req = entry.get("llm_request", {})
+                log_info("prompt_length", str(llm_req.get("prompt_length")), 4)
+                log_info("response_mask_len", str(llm_req.get("response_mask_len")), 4)
+                log_info("llm_tokens", str(entry.get("llm_response_token_count")), 4)
+                assistant = entry.get("assistant_message", {})
+                if assistant:
+                    print(f"    {Colors.BLUE}assistant:{Colors.RESET} {assistant.get('content', '')}")
+                tool_calls = entry.get("tool_calls", [])
+                if tool_calls:
+                    print(f"    tool_calls:")
+                    for tc in tool_calls:
+                        func = tc.get("function", {})
+                        print(f"      - {func.get('name')}({func.get('arguments')})")
+                tool_results = entry.get("tool_results", [])
+                if tool_results:
+                    print(f"    tool_results:")
+                    for tr in tool_results:
+                        print(f"      - {tr.get('content')}")
+                print()
         
         # Analyze the conversation flow
         log_header("Step 5: Conversation Flow Analysis")

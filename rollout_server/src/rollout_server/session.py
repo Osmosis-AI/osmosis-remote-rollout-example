@@ -84,6 +84,7 @@ class RolloutSession:
         self.messages: List[Dict[str, Any]] = []
         self.last_prompt_length = 0  # CRITICAL for response_mask calculation
         self.turn_count = 0
+        self.last_debug_info: Optional[Dict[str, Any]] = None
 
         logger.info(f"[{rollout_id}] Created RolloutSession with server_url={server_url}")
 
@@ -171,11 +172,32 @@ class RolloutSession:
             **sampling_params
         )
 
+        # Log detailed request payload
+        request_payload = request.model_dump()
         logger.info(
             f"[{self.rollout_id}] Calling /v1/chat/completions: "
             f"prompt_length={current_prompt_length}, "
             f"response_mask={'None' if response_mask is None else f'[{len(response_mask)} zeros]'}"
         )
+        logger.info(
+            f"[{self.rollout_id}] Request payload:\n"
+            f"  rollout_id: {request_payload['rollout_id']}\n"
+            f"  messages: {len(request_payload['messages'])} messages\n"
+            f"  response_mask: {request_payload.get('response_mask', 'None')}\n"
+            f"  sampling_params: temperature={request_payload.get('temperature')}, "
+            f"top_p={request_payload.get('top_p')}, max_tokens={request_payload.get('max_tokens')}"
+        )
+
+        # Print full messages for debugging
+        for idx, msg in enumerate(request_payload['messages']):
+            role = msg.get('role', 'unknown')
+            content = msg.get('content', '')
+            tool_calls = msg.get('tool_calls', [])
+            logger.debug(
+                f"[{self.rollout_id}] Message[{idx}]: role={role}, "
+                f"content={'<empty>' if not content else (content[:100] + '...' if len(str(content)) > 100 else content)}, "
+                f"tool_calls={len(tool_calls) if tool_calls else 0}"
+            )
 
         # Build headers with optional authentication
         headers = {}
@@ -184,17 +206,31 @@ class RolloutSession:
 
         response = await self.http_client.post(
             f"{self.server_url}/v1/chat/completions",
-            json=request.model_dump(),
+            json=request_payload,
             headers=headers
         )
         response.raise_for_status()
         response_data = response.json()
         completion_response = CompletionsResponse(**response_data)
 
+        # Log detailed response
+        logger.info(
+            f"[{self.rollout_id}] Response received:\n"
+            f"  token_ids: {len(completion_response.token_ids)} tokens\n"
+            f"  message.role: {completion_response.choices[0].message.role}\n"
+            f"  message.content: {completion_response.choices[0].message.content[:100] if completion_response.choices[0].message.content else '<empty>'}...\n"
+            f"  tool_calls: {len(completion_response.choices[0].message.tool_calls) if completion_response.choices[0].message.tool_calls else 0}"
+        )
+
         # 4. Update tracking with LLM response length
         llm_token_count = len(completion_response.token_ids)
         self.last_prompt_length = current_prompt_length + llm_token_count
         self.turn_count += 1
+        self.last_debug_info = {
+            "prompt_length": current_prompt_length,
+            "response_mask": response_mask,
+            "llm_token_count": llm_token_count,
+        }
 
         logger.info(
             f"[{self.rollout_id}] Turn {self.turn_count}: "

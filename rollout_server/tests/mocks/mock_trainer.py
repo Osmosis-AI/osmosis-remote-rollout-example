@@ -9,9 +9,10 @@ Usage:
     python -m tests.mocks.mock_trainer
 """
 
+import re
 import time
 import uuid
-from typing import List
+from typing import List, Optional, Tuple
 
 from fastapi import FastAPI
 from transformers import AutoTokenizer
@@ -32,42 +33,72 @@ if TOKENIZER.pad_token is None:
     TOKENIZER.pad_token = TOKENIZER.eos_token
 
 
-def generate_mock_response(messages: List[Message], use_tools: bool = False) -> dict:
-    """Generate a mock LLM response.
+def parse_user_request(messages: List[Message]) -> Tuple[float, float, float]:
+    """Parse the first user request to extract addends and multiplier."""
+    user_msg = next((m for m in messages if m.role == "user"), None)
+    if user_msg is None or not isinstance(user_msg.content, str):
+        return 0.0, 0.0, 1.0
 
-    Args:
-        messages: Conversation history
-        use_tools: If True, generate a response with tool calls
+    text = user_msg.content.lower()
+    numbers = re.findall(r"-?\d+(?:\.\d+)?", text)
+    a = float(numbers[0]) if len(numbers) > 0 else 0.0
+    b = float(numbers[1]) if len(numbers) > 1 else 0.0
+    multiplier = float(numbers[2]) if len(numbers) > 2 else 2.0
 
-    Returns:
-        Mock assistant message with optional tool calls
-    """
-    if use_tools:
-        # Generate response with calculator tool call
-        response_text = "I'll calculate that for you."
-        assistant_message = {
-            "role": "assistant",
-            "content": response_text,
-            "tool_calls": [
-                {
-                    "id": f"call_{uuid.uuid4().hex[:8]}",
-                    "type": "function",
-                    "function": {
-                        "name": "add",
-                        "arguments": '{"a": 5, "b": 3}'
-                    }
+    return a, b, multiplier
+
+
+def find_prev_assistant(messages: List[Message]) -> Optional[Message]:
+    """Find the last assistant message before the final message."""
+    for msg in reversed(messages[:-1]):
+        if msg.role == "assistant":
+            return msg
+    return None
+
+
+def build_add_tool_call(a: float, b: float) -> dict:
+    """Create an assistant message that calls the add tool."""
+    return {
+        "role": "assistant",
+        "content": "I'll calculate the sum first.",
+        "tool_calls": [
+            {
+                "id": f"call_{uuid.uuid4().hex[:8]}",
+                "type": "function",
+                "function": {
+                    "name": "add",
+                    "arguments": f'{{"a": {a}, "b": {b}}}'
                 }
-            ]
-        }
-    else:
-        # Generate simple text response without tools
-        response_text = "I'm a mock LLM. The calculation result should be in the previous message."
-        assistant_message = {
-            "role": "assistant",
-            "content": response_text
-        }
+            }
+        ]
+    }
 
-    return assistant_message
+
+def build_multiply_tool_call(sum_result: float, multiplier: float) -> dict:
+    """Create an assistant message that calls the multiply tool."""
+    return {
+        "role": "assistant",
+        "content": "Continuing the calculation.",
+        "tool_calls": [
+            {
+                "id": f"call_{uuid.uuid4().hex[:8]}",
+                "type": "function",
+                "function": {
+                    "name": "multiply",
+                    "arguments": f'{{"a": {sum_result}, "b": {multiplier}}}'
+                }
+            }
+        ]
+    }
+
+
+def build_final_answer(a: float, b: float, multiplier: float, final_value: float) -> dict:
+    """Create a plain assistant message with the final answer."""
+    sum_value = a + b
+    return {
+        "role": "assistant",
+        "content": f"{a} plus {b} equals {sum_value}. Multiplying {sum_value} by {multiplier} gives {final_value}."
+    }
 
 
 @app.post("/v1/chat/completions")
@@ -79,25 +110,85 @@ async def completions(request: CompletionsRequest) -> CompletionsResponse:
     2. Generates LLM response (with or without tool calls)
     3. Returns token IDs and logprobs
     """
-    print(f"[Mock Trainer] Received request for rollout_id={request.rollout_id}")
-    print(f"[Mock Trainer] Messages count: {len(request.messages)}")
-    print(f"[Mock Trainer] Response mask: {request.response_mask}")
+    print("\n" + "=" * 80)
+    print(f"[Mock Trainer] RECEIVED REQUEST")
+    print("=" * 80)
+    print(f"  rollout_id: {request.rollout_id}")
+    print(f"  messages: {len(request.messages)} messages")
+    print(f"  response_mask: {request.response_mask}")
+    print(f"  sampling_params:")
+    print(f"    - temperature: {request.temperature}")
+    print(f"    - top_p: {request.top_p}")
+    print(f"    - max_tokens: {request.max_tokens}")
+    print(f"    - logprobs: {request.logprobs}")
+    print(f"\n  Messages detail:")
+    for idx, msg in enumerate(request.messages):
+        role = msg.role
+        content = msg.content if msg.content else '<empty>'
+        if len(str(content)) > 100:
+            content = str(content)[:100] + "..."
+        tool_calls = msg.tool_calls if msg.tool_calls else []
+        print(f"    [{idx}] {role.upper()}: {content}")
+        if tool_calls:
+            for tc in tool_calls:
+                print(f"        -> tool_call: {tc.function.name}({tc.function.arguments})")
+        if hasattr(msg, 'tool_call_id') and msg.tool_call_id:
+            print(f"        -> tool_call_id: {msg.tool_call_id}")
+    print("=" * 80)
 
-    # Determine if we should use tools based on conversation state
-    # First call: use tools if user asks for calculation
-    # Second call (after tool execution): respond normally
     last_message = request.messages[-1]
-    use_tools = False
+    a, b, multiplier = parse_user_request(request.messages)
+
+    assistant_message: dict
 
     if last_message.role == "user":
-        # First turn - check if user asks for calculation
+        # First turn - start with add tool call when a calculation is requested
         user_content = last_message.content
-        if isinstance(user_content, str) and any(word in user_content.lower()
-                                                  for word in ["calculate", "add", "sum", "plus"]):
-            use_tools = True
+        wants_math = isinstance(user_content, str) and any(
+            word in user_content.lower() for word in ["calculate", "add", "sum", "plus"]
+        )
+        if wants_math:
+            assistant_message = build_add_tool_call(a, b)
+        else:
+            assistant_message = {
+                "role": "assistant",
+                "content": "I'm a mock LLM. I will respond without tools."
+            }
+    elif last_message.role == "tool":
+        prev_assistant = find_prev_assistant(request.messages)
+        if prev_assistant and prev_assistant.tool_calls:
+            func_name = prev_assistant.tool_calls[0].function.name
 
-    # Generate mock response
-    assistant_message = generate_mock_response(request.messages, use_tools=use_tools)
+            if func_name == "add":
+                # After add tool result, call multiply
+                try:
+                    sum_result = float(last_message.content)
+                except (TypeError, ValueError):
+                    sum_result = a + b
+                assistant_message = build_multiply_tool_call(sum_result, multiplier)
+            elif func_name == "multiply":
+                # After multiply tool result, return final text answer
+                try:
+                    final_value = float(last_message.content)
+                except (TypeError, ValueError):
+                    final_value = (a + b) * multiplier
+                assistant_message = build_final_answer(a, b, multiplier, final_value)
+            else:
+                assistant_message = {
+                    "role": "assistant",
+                    "content": "I'm a mock LLM. The calculation result should be in the previous message."
+                }
+        else:
+            assistant_message = {
+                "role": "assistant",
+                "content": "I'm a mock LLM. The calculation result should be in the previous message."
+            }
+    else:
+        # Fallback
+        assistant_message = {
+            "role": "assistant",
+            "content": "I'm a mock LLM. The calculation result should be in the previous message."
+        }
 
     # Tokenize response for token IDs
     response_text = assistant_message["content"]
@@ -114,12 +205,8 @@ async def completions(request: CompletionsRequest) -> CompletionsResponse:
     )
     prompt_token_ids = TOKENIZER.encode(prompt_text, add_special_tokens=True)
 
-    print(f"[Mock Trainer] Generated response: {response_text[:100]}...")
-    print(f"[Mock Trainer] Response tokens: {len(response_token_ids)}")
-    print(f"[Mock Trainer] Tool calls: {assistant_message.get('tool_calls', [])}")
-
     # Build response
-    return CompletionsResponse(
+    completion_response = CompletionsResponse(
         id=f"mock-{uuid.uuid4().hex[:8]}",
         object="chat.completion",
         created=int(time.time()),
@@ -135,6 +222,29 @@ async def completions(request: CompletionsRequest) -> CompletionsResponse:
         logprobs=response_logprobs,
         prompt_token_ids=prompt_token_ids
     )
+
+    # Print detailed response
+    print("\n" + "=" * 80)
+    print(f"[Mock Trainer] SENDING RESPONSE")
+    print("=" * 80)
+    print(f"  id: {completion_response.id}")
+    print(f"  model: {completion_response.model}")
+    print(f"  token_ids: {len(completion_response.token_ids)} tokens")
+    print(f"  prompt_token_ids: {len(completion_response.prompt_token_ids)} tokens")
+    print(f"  message:")
+    print(f"    - role: {completion_response.choices[0].message.role}")
+    content = completion_response.choices[0].message.content
+    if content and len(content) > 100:
+        content = content[:100] + "..."
+    print(f"    - content: {content}")
+    tool_calls = completion_response.choices[0].message.tool_calls
+    if tool_calls:
+        print(f"    - tool_calls: {len(tool_calls)}")
+        for tc in tool_calls:
+            print(f"        -> {tc.function.name}({tc.function.arguments})")
+    print("=" * 80 + "\n")
+
+    return completion_response
 
 
 @app.get("/health")
