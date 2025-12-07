@@ -1,6 +1,6 @@
 """Mock trainer server for testing RolloutServer independently.
 
-This mock trainer implements the /v1/completions endpoint that RolloutServer
+This mock trainer implements the /v1/chat/completions endpoint that RolloutServer
 expects to call back to. It provides canned responses for testing without
 requiring a real GPU-backed training cluster.
 
@@ -70,11 +70,11 @@ def generate_mock_response(messages: List[Message], use_tools: bool = False) -> 
     return assistant_message
 
 
-@app.post("/v1/completions")
+@app.post("/v1/chat/completions")
 async def completions(request: CompletionsRequest) -> CompletionsResponse:
     """Mock completions endpoint.
 
-    This simulates what the real trainer's /v1/completions endpoint does:
+    This simulates what the real trainer's /v1/chat/completions endpoint does:
     1. Receives messages and rollout_id from RolloutServer
     2. Generates LLM response (with or without tool calls)
     3. Returns token IDs and logprobs
@@ -150,7 +150,7 @@ if __name__ == "__main__":
 
     print("=" * 60)
     print(f"Starting Mock Trainer Server on port {port}")
-    print("This server simulates the trainer's /v1/completions endpoint")
+    print("This server simulates the trainer's /v1/chat/completions endpoint")
     print("for testing RolloutServer independently.")
     print("=" * 60)
 

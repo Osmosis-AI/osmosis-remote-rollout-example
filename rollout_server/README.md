@@ -21,7 +21,7 @@ Remote Rollout is an architecture that separates agent trajectory generation fro
 **Key Benefits**:
 - Decouple agent logic from training infrastructure
 - Teams iterate independently
-- Standard OpenAI-compatible `/v1/completions` endpoint
+- Standard OpenAI-compatible `/v1/chat/completions` endpoint
 - Support multi-turn conversations with tools
 
 ## Quick Start
@@ -54,6 +54,16 @@ uv run python -m rollout_server.server
 ROLLOUT_SERVER_PORT=9100 uv run python -m rollout_server.server
 ```
 
+### Port Configuration
+
+| Service | Default Port | Description |
+|---------|--------------|-------------|
+| **RolloutServer** | `9000` | Receives POST /rollout requests from OsmosisAgentLoop |
+| **Trainer callback** | `8081` | OsmosisAgentLoopWorker's /v1/chat/completions endpoint |
+| **Trainer port range** | `8080-8130` | Docker exposed range for multiple workers |
+
+**Note**: The trainer uses port `8081 + worker_index` for each worker. Ensure your firewall allows outbound connections to the trainer's port range.
+
 You should see output like:
 ```
 INFO:     Started server process [12345]
@@ -73,7 +83,7 @@ response = await httpx.post(
     "http://localhost:9000/rollout",
     json={
         "rollout_id": "test-123",
-        "server_url": "http://trainer:8081",  # Trainer's /v1/completions endpoint
+        "server_url": "http://trainer:8081",  # Trainer's /v1/chat/completions endpoint
         "messages": [
             {"role": "user", "content": "Calculate 15 * 23"}
         ],
@@ -112,7 +122,7 @@ uv run pytest --cov=rollout_server
 1. OsmosisAgentLoop sends POST /rollout request
    ↓
 2. RolloutServer drives agent loop:
-   a. Call trainer's /v1/completions (with response_mask!)
+   a. Call trainer's /v1/chat/completions (with response_mask!)
    b. Parse tool calls from LLM response
    c. Execute tools (calculator in this example)
    d. Append tool outputs to conversation
@@ -178,7 +188,7 @@ class RolloutSession:
 
         # 3. Call trainer with EXPLICIT mask
         response = await httpx.post(
-            f"{self.server_url}/v1/completions",
+            f"{self.server_url}/v1/chat/completions",
             json={
                 "rollout_id": self.rollout_id,
                 "messages": self.messages,
@@ -256,7 +266,7 @@ See [traingate docs/remote_rollout_design.md](https://github.com/Osmosis-AI/trai
 
 ### Testing with Mock Trainer
 
-The `/rollout` endpoint requires a trainer's `/v1/completions` endpoint to function. For standalone testing without a real training cluster, use the mock trainer:
+The `/rollout` endpoint requires a trainer's `/v1/chat/completions` endpoint to function. For standalone testing without a real training cluster, use the mock trainer:
 
 #### Quick Start: One-Command Test Environment
 
@@ -296,7 +306,7 @@ You should see:
 ```
 ============================================================
 Starting Mock Trainer Server on port 9001
-This server simulates the trainer's /v1/completions endpoint
+This server simulates the trainer's /v1/chat/completions endpoint
 for testing RolloutServer independently.
 ============================================================
 ```

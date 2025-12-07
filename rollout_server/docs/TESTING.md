@@ -6,13 +6,13 @@ This guide explains how to test the RolloutServer `/rollout` endpoint independen
 
 The `/rollout` endpoint implements the Remote Rollout Protocol, which requires:
 1. RolloutServer receives a rollout request from the training cluster
-2. RolloutServer **calls back** to the trainer's `/v1/completions` endpoint for LLM generation
+2. RolloutServer **calls back** to the trainer's `/v1/chat/completions` endpoint for LLM generation
 3. RolloutServer executes tools and loops until done
 4. RolloutServer returns final messages to the training cluster
 
 **The problem**: In standalone testing, there's no real training cluster to call back to!
 
-**The solution**: Use a mock trainer that implements the `/v1/completions` endpoint.
+**The solution**: Use a mock trainer that implements the `/v1/chat/completions` endpoint.
 
 ## Quick Start: One-Command Test Environment
 
@@ -194,7 +194,7 @@ curl -X POST http://localhost:9000/rollout \
 }
 ```
 
-**Cause**: The trainer endpoint doesn't have `/v1/completions`.
+**Cause**: The trainer endpoint doesn't have `/v1/chat/completions`.
 
 **Solution**: Ensure the mock trainer is running and the URL is correct.
 
@@ -203,7 +203,7 @@ curl -X POST http://localhost:9000/rollout \
 When you test with the mock trainer:
 
 1. **You send** `/rollout` request to RolloutServer (port 9000)
-2. **RolloutServer calls back** to mock trainer's `/v1/completions` (port 9001)
+2. **RolloutServer calls back** to mock trainer's `/v1/chat/completions` (port 9001)
 3. **Mock trainer returns** a fake LLM response (possibly with tool calls)
 4. **RolloutServer executes** the calculator tools
 5. **RolloutServer calls back** again with tool results
@@ -266,7 +266,7 @@ To modify the mock trainer's behavior:
 
 In production, the real training cluster will:
 - Send rollout requests to RolloutServer
-- Provide a real `/v1/completions` endpoint backed by vLLM/SGLang
+- Provide a real `/v1/chat/completions` endpoint backed by vLLM/SGLang
 - Use real LLM inference for generation
 
 The mock trainer is ONLY for standalone testing and development.

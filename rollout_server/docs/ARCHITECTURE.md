@@ -1,6 +1,6 @@
 # System Architecture
 
-**Last Updated**: 2025-12-05
+**Last Updated**: 2025-12-06
 
 ## Overview
 
@@ -16,11 +16,11 @@ The Remote Rollout Server is a reference implementation that demonstrates the ca
 │  │                 │                               │                     │   │
 │  │  • Orchestrates │                               │  • vLLM/SGLang      │   │
 │  │    rollouts     │                               │  • PPO Training     │   │
-│  │  • Distributes  │                               │  • /v1/completions  │   │
+│  │  • Distributes  │                               │  • /v1/chat/completions  │   │
 │  │    work         │                               └──────────▲──────────┘   │
 │  └────────┬────────┘                                          │              │
 │           │                                                   │              │
-│           │ POST /rollout                POST /v1/completions │              │
+│           │ POST /rollout                POST /v1/chat/completions │              │
 │           │                              (with response_mask) │              │
 │           ▼                                        ┌──────────┘              │
 │  ┌─────────────────────────────────────────────────┼──────────────────────┐  │
@@ -87,7 +87,7 @@ The main entry point that exposes the `/rollout` and `/tools` endpoints.
 
 - Track token positions between LLM calls
 - Calculate response_mask for tool output tokens
-- Communicate with trainer's `/v1/completions` endpoint
+- Communicate with trainer's `/v1/chat/completions` endpoint
 - Maintain conversation state
 
 **Key Implementation:**
@@ -110,7 +110,7 @@ class RolloutSession:
 
         # 3. Call trainer with mask
         response = await self.http_client.post(
-            f"{self.server_url}/v1/completions",
+            f"{self.server_url}/v1/chat/completions",
             json={"messages": self.messages, "response_mask": response_mask, ...}
         )
 
@@ -180,7 +180,7 @@ OsmosisAgentLoop                    RolloutServer                      Trainer
      │                                   │  Load/cache tokenizer          │
      │                                   │  Create RolloutSession         │
      │                                   │                                │
-     │                                   │  POST /v1/completions          │
+     │                                   │  POST /v1/chat/completions          │
      │                                   │  {rollout_id, messages,        │
      │                                   │   response_mask, ...}          │
      │                                   ├───────────────────────────────▶│
@@ -294,6 +294,14 @@ Reference: [traingate/docs/remote_rollout_design.md](https://github.com/Osmosis-
 | `TOKENIZER_CACHE_SIZE`        | `5`     | Max tokenizers in LRU cache    |
 | `HTTP_CLIENT_TIMEOUT`         | `300.0` | HTTP request timeout (seconds) |
 | `TOKENIZER_TRUST_REMOTE_CODE` | `false` | Allow custom tokenizer code    |
+
+### Trainer Callback Ports
+
+When connecting to the training cluster:
+- **Default callback port**: `8081` (base port for OsmosisAgentLoopWorker)
+- **Port allocation**: `base_port + worker_index` (e.g., worker_0 → 8081, worker_1 → 8082)
+- **Docker exposed range**: `8080-8130` (ensure firewall allows outbound to this range)
+- **Endpoint**: `/v1/chat/completions` (OpenAI-compatible)
 
 ### Resource Requirements
 

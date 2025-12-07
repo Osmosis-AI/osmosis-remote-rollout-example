@@ -150,7 +150,7 @@ class RolloutSession:
 
         # 3. Call trainer with EXPLICIT mask
         response = await httpx.post(
-            f"{self.server_url}/v1/completions",
+            f"{self.server_url}/v1/chat/completions",
             json={
                 "rollout_id": self.rollout_id,
                 "messages": self.messages,
@@ -212,7 +212,7 @@ Turn 2:
 messages.extend(tool_results)
 
 # Call LLM again - missing response_mask!
-response = await post(f"{server_url}/v1/completions", json={
+response = await post(f"{server_url}/v1/chat/completions", json={
     "rollout_id": rollout_id,
     "messages": messages,
     # response_mask is missing!
@@ -228,7 +228,7 @@ num_tool_tokens = len(tokenize_tool_results(tool_results))
 response_mask = [0] * num_tool_tokens
 
 # Call LLM with explicit mask
-response = await post(f"{server_url}/v1/completions", json={
+response = await post(f"{server_url}/v1/chat/completions", json={
     "rollout_id": rollout_id,
     "messages": messages,
     "response_mask": response_mask,  # ✓
@@ -451,7 +451,7 @@ async def test_mask_length_matches_tokens():
 2. **Provide explicit `response_mask` for every call after Turn 1**
 3. **Calculate mask by tokenizing tool outputs** (don't guess!)
 4. **Mask semantics**: `0` = tool/system tokens, `1` = LLM tokens
-5. **Always include `rollout_id`** in `/v1/completions` requests
+5. **Always include `rollout_id`** in `/v1/chat/completions` requests
 6. **Track `last_prompt_length`** between LLM calls (key to correct masks)
 7. **Test mask correctness** with integration tests
 

@@ -207,7 +207,7 @@ class RolloutRequest(BaseModel):
     """Request sent to POST /rollout to initiate a complete rollout.
 
     OsmosisAgentLoop sends this request and waits for RolloutServer to complete
-    the entire agent loop. RolloutServer calls back to server_url/v1/completions
+    the entire agent loop. RolloutServer calls back to server_url/v1/chat/completions
     for LLM generation.
 
     Termination Control
@@ -248,7 +248,7 @@ class RolloutRequest(BaseModel):
     """
 
     rollout_id: str = Field(..., description="Unique rollout identifier (UUID format)")
-    server_url: str = Field(..., description="Trainer's /v1/completions endpoint URL")
+    server_url: str = Field(..., description="Trainer's /v1/chat/completions endpoint URL")
     messages: List[Message] = Field(..., min_length=1)  # Initial conversation messages (at least 1)
     sampling_params: SamplingParams
     tool_server_url: Optional[str] = None
@@ -314,7 +314,7 @@ class RolloutResponse(BaseModel):
     """Response from RolloutServer after completing the rollout.
 
     Contains the final messages and status. Token tracking data is accumulated
-    in SessionManager via /v1/completions requests during the rollout.
+    in SessionManager via /v1/chat/completions requests during the rollout.
 
     num_turns in AgentLoopOutput
     ────────────────────────────
@@ -345,7 +345,7 @@ class RolloutResponse(BaseModel):
 
 
 # =============================================================================
-# Completions Request/Response (RolloutServer -> Trainer /v1/completions)
+# Completions Request/Response (RolloutServer -> Trainer /v1/chat/completions)
 # =============================================================================
 
 
@@ -367,7 +367,7 @@ MAX_RESPONSE_MASK_LENGTH = 100000
 class CompletionsRequest(BaseModel):
     """OpenAI-compatible completions request with rollout_id extension.
 
-    RolloutServer sends this to trainer's /v1/completions endpoint.
+    RolloutServer sends this to trainer's /v1/chat/completions endpoint.
     The rollout_id is used to route the request to the correct session.
 
     CRITICAL FIELD: response_mask

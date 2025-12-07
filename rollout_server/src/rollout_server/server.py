@@ -5,7 +5,7 @@ This server implements the callback-based protocol specified in:
 - docs/remote_rollout_design.md (System Architecture)
 
 The server receives POST /rollout requests, drives the agent loop by calling
-back to the trainer's /v1/completions endpoint, and returns the final messages.
+back to the trainer's /v1/chat/completions endpoint, and returns the final messages.
 
 CRITICAL: This implementation demonstrates CORRECT response_mask handling
 as specified in docs/rollout_server.md Section 4.
@@ -308,7 +308,7 @@ async def handle_rollout(request: RolloutRequest) -> RolloutResponse:
     This endpoint implements the callback-based protocol where:
     1. Receive rollout request from OsmosisAgentLoop
     2. Drive agent loop: call LLM → parse tools → execute tools → loop
-    3. Call back to trainer's /v1/completions for LLM generation
+    3. Call back to trainer's /v1/chat/completions for LLM generation
     4. Return final messages when done
 
     CRITICAL IMPLEMENTATION:
