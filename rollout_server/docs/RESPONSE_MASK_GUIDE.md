@@ -14,6 +14,8 @@
 
 ---
 
+👉 Looking for a concrete payload walkthrough? See `docs/REQUEST_FLOW_EXAMPLE.md` for a turn-by-turn `/rollout` ↔ `/v1/chat/completions` example using the mock trainer.
+
 ## Why Response Mask Matters
 
 **The `response_mask` is THE most critical part of the Remote Rollout Protocol.**

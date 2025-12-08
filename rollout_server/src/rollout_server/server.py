@@ -28,13 +28,16 @@ from rollout_server.schemas import (
 from rollout_server.tools.calculator import CALCULATOR_TOOL_SCHEMAS
 
 
-# Configure module-specific logger (avoid global basicConfig conflicts)
-logger = logging.getLogger(__name__)
-if not logger.handlers:
+# Configure logging for all rollout_server modules
+# This ensures all submodules (session, executor, etc.) inherit the configuration
+root_logger = logging.getLogger("rollout_server")
+if not root_logger.handlers:
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+    root_logger.addHandler(handler)
+    root_logger.setLevel(logging.INFO)
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
