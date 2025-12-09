@@ -59,6 +59,9 @@ class CompletionsRequest(BaseModel):
 
     temperature: float = Field(default=1.0, ge=0.0, le=2.0)
     top_p: float = Field(default=1.0, ge=0.0, le=1.0)
+    # NOTE: In current verl implementation, max_tokens is IGNORED by trainer.
+    # verl calculates max_tokens = config.max_model_len - len(prompt_ids) internally.
+    # Kept for protocol compatibility.
     max_tokens: int = Field(default=512, ge=1, le=MAX_TOKENS_LIMIT)
     stop: Optional[List[str]] = None
     logprobs: bool = True
