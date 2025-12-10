@@ -150,3 +150,6 @@ CLAUDE.md
 # Logs
 rollout_server/logs/
 mock_trainer/logs/
+
+#cloudflare
+cloudflare-deploy/
