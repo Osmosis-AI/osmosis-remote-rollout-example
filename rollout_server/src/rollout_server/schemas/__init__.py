@@ -19,7 +19,6 @@ Submodules:
 from rollout_server.schemas.constants import (
     VALID_MESSAGE_ROLES,
     MAX_TOKENS_LIMIT,
-    MAX_RESPONSE_MASK_LENGTH,
 )
 
 # Message-related schemas
@@ -27,9 +26,18 @@ from rollout_server.schemas.messages import (
     Message,
     ToolCall,
     ToolCallFunction,
-    ToolFunction,
-    ToolDefinition,
-    ToolsResponse,
+)
+
+# Tool definition schemas (verl-compatible)
+from rollout_server.schemas.tools import (
+    OpenAIFunctionPropertySchema,
+    OpenAIFunctionParametersSchema,
+    OpenAIFunctionSchema,
+    OpenAIFunctionToolSchema,
+    OpenAIFunctionParsedSchema,
+    OpenAIFunctionCallSchema,
+    OpenAIFunctionToolCall,
+    ToolResponse,
 )
 
 # Sampling parameters
@@ -41,6 +49,7 @@ from rollout_server.schemas.rollout import (
     RolloutMetrics,
     RolloutRequest,
     RolloutResponse,
+    InitResponse,
 )
 
 # Completions schemas
@@ -54,14 +63,19 @@ __all__ = [
     # Constants
     "VALID_MESSAGE_ROLES",
     "MAX_TOKENS_LIMIT",
-    "MAX_RESPONSE_MASK_LENGTH",
     # Messages
     "Message",
     "ToolCall",
     "ToolCallFunction",
-    "ToolFunction",
-    "ToolDefinition",
-    "ToolsResponse",
+    # Tool definitions (verl-compatible)
+    "OpenAIFunctionPropertySchema",
+    "OpenAIFunctionParametersSchema",
+    "OpenAIFunctionSchema",
+    "OpenAIFunctionToolSchema",
+    "OpenAIFunctionParsedSchema",
+    "OpenAIFunctionCallSchema",
+    "OpenAIFunctionToolCall",
+    "ToolResponse",
     # Params
     "SamplingParams",
     # Rollout
@@ -69,6 +83,7 @@ __all__ = [
     "RolloutMetrics",
     "RolloutRequest",
     "RolloutResponse",
+    "InitResponse",
     # Completions
     "CompletionsChoice",
     "CompletionsRequest",

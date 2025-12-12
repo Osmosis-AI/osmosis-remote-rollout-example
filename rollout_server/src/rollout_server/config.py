@@ -17,6 +17,8 @@ Environment Variables:
     TOKENIZER_TRUST_REMOTE_CODE: Allow custom tokenizer code (default: true)
     MAX_CONCURRENT_ROLLOUTS: Rate limit concurrent rollouts (default: 100)
     ROLLOUT_TIMEOUT_SECONDS: Total rollout timeout (default: 600.0)
+    MAX_ROLLOUT_RECORDS: Max rollout_id records to retain (default: 10000)
+    ROLLOUT_RECORD_TTL_SECONDS: TTL for completed rollout_id records (default: 3600.0)
 """
 
 import os
@@ -87,6 +89,8 @@ class Settings:
         tokenizer_trust_remote_code: Allow execution of custom tokenizer code
         max_concurrent_rollouts: Max concurrent rollouts (rate limiting)
         rollout_timeout_seconds: Total rollout timeout in seconds
+        max_rollout_records: Max rollout_id records to retain in memory
+        rollout_record_ttl_seconds: TTL for completed rollout_id records in memory
         default_temperature: Default sampling temperature
         default_top_p: Default nucleus sampling top_p
         default_max_tokens: Default max tokens per generation
@@ -107,6 +111,12 @@ class Settings:
     # Rate limiting and timeouts
     max_concurrent_rollouts: int = field(default_factory=lambda: _get_int_env("MAX_CONCURRENT_ROLLOUTS", 100))
     rollout_timeout_seconds: float = field(default_factory=lambda: _get_float_env("ROLLOUT_TIMEOUT_SECONDS", 600.0))
+
+    # Rollout record retention (idempotency + memory safety)
+    max_rollout_records: int = field(default_factory=lambda: _get_int_env("MAX_ROLLOUT_RECORDS", 10000))
+    rollout_record_ttl_seconds: float = field(
+        default_factory=lambda: _get_float_env("ROLLOUT_RECORD_TTL_SECONDS", 3600.0)
+    )
 
     # Default sampling parameters
     default_temperature: float = 1.0

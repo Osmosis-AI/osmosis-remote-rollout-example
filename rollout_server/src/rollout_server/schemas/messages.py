@@ -12,56 +12,6 @@ from rollout_server.schemas.constants import VALID_MESSAGE_ROLES
 
 
 # =============================================================================
-# Tool Definition Schemas (GET /tools endpoint)
-# =============================================================================
-
-
-class ToolFunction(BaseModel):
-    """Function definition within a tool, following OpenAI tool format."""
-
-    name: str
-    description: Optional[str] = None
-    parameters: Optional[Dict[str, Any]] = None
-
-
-class ToolDefinition(BaseModel):
-    """Tool definition following OpenAI tools format.
-
-    Example:
-        {
-            "type": "function",
-            "function": {
-                "name": "add",
-                "description": "Add two numbers",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "a": {"type": "number"},
-                        "b": {"type": "number"}
-                    },
-                    "required": ["a", "b"]
-                }
-            }
-        }
-    """
-
-    type: str = "function"
-    function: ToolFunction
-
-
-class ToolsResponse(BaseModel):
-    """Response from RolloutServer GET /tools endpoint.
-
-    Contains the list of available tools that the LLM can use during rollout.
-    This is fetched once at worker startup and used for apply_chat_template().
-
-    Specification: docs/rollout_server.md Section 3.0
-    """
-
-    tools: List[ToolDefinition] = Field(default_factory=list)
-
-
-# =============================================================================
 # Message and Chat Schemas
 # =============================================================================
 

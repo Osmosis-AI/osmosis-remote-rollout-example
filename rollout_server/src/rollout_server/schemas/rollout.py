@@ -1,6 +1,11 @@
-"""Rollout request/response schemas for the Remote Rollout Protocol.
+"""Rollout init/completion schemas for the Remote Rollout Protocol.
 
-These schemas define the contract between OsmosisAgentLoop and RolloutServer.
+These schemas define the contract between the training-side agent loop and
+RolloutServer. The protocol uses an async-init flow:
+
+- Training -> RolloutServer: POST /init (returns 202 with tools)
+- RolloutServer -> Training: POST {server_url}/v1/chat/completions (LLM callback)
+- RolloutServer -> Training: POST {server_url}/v1/rollout/completed (completion callback)
 """
 
 from enum import Enum
@@ -8,8 +13,12 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from rollout_server.schemas.messages import Message
-from rollout_server.schemas.params import SamplingParams
+from rollout_server.schemas.tools import OpenAIFunctionToolSchema
+
+# Protocol transmission uses dicts for messages and completion params to remain
+# compatible with the OpenAI message format (including vendor-specific fields).
+MessageDict = Dict[str, Any]
+CompletionParamsDict = Dict[str, Any]
 
 
 # =============================================================================
@@ -62,11 +71,11 @@ class RolloutMetrics(BaseModel):
 
 
 class RolloutRequest(BaseModel):
-    """Request sent to POST /rollout to initiate a complete rollout.
+    """Request sent to POST /init to start a rollout (async-init protocol).
 
-    OsmosisAgentLoop sends this request and waits for RolloutServer to complete
-    the entire agent loop. RolloutServer calls back to server_url/v1/chat/completions
-    for LLM generation.
+    The rollout continues asynchronously:
+    - RolloutServer calls back to server_url/v1/chat/completions for LLM generation.
+    - RolloutServer posts the final RolloutResponse to server_url/v1/rollout/completed.
 
     Termination Control
     ───────────────────
@@ -105,10 +114,16 @@ class RolloutRequest(BaseModel):
     Reference: traingate/integrations/verl/schemas.py - RolloutRequest
     """
 
-    rollout_id: str = Field(..., description="Unique rollout identifier (UUID format)")
-    server_url: str = Field(..., description="Trainer's /v1/chat/completions endpoint URL")
-    messages: List[Message] = Field(..., min_length=1)  # Initial conversation messages (at least 1)
-    sampling_params: SamplingParams
+    rollout_id: str = Field(..., description="Unique rollout identifier")
+    server_url: str = Field(
+        ...,
+        description=(
+            "Trainer base URL. RolloutServer calls {server_url}/v1/chat/completions "
+            "and posts completion to {server_url}/v1/rollout/completed"
+        ),
+    )
+    messages: List[MessageDict] = Field(..., min_length=1)
+    completion_params: CompletionParamsDict
     tool_server_url: Optional[str] = None
 
     max_turns: int = Field(
@@ -129,17 +144,7 @@ class RolloutRequest(BaseModel):
     )
 
     # Callback authentication
-    callback_api_key: Optional[str] = None  # API key for authenticating callbacks to server_url
-
-    # Tokenizer information (REQUIRED)
-    # RolloutServer MUST use the EXACT same tokenizer as the training cluster
-    # for correct response_mask calculation. Mismatched tokenizers will cause
-    # token count errors and corrupt training data.
-    tokenizer_name: str = Field(
-        ...,
-        description="Tokenizer name (e.g., 'Qwen/Qwen3-8B'). MUST match trainer's tokenizer!"
-    )
-    tokenizer_revision: Optional[str] = None  # e.g., "main" or git commit hash
+    api_key: Optional[str] = None  # Bearer token for authenticating callbacks to server_url
 
     @field_validator('rollout_id')
     @classmethod
@@ -175,10 +180,10 @@ class RolloutRequest(BaseModel):
 
 
 class RolloutResponse(BaseModel):
-    """Response from RolloutServer after completing the rollout.
+    """Payload posted by RolloutServer to server_url/v1/rollout/completed.
 
-    Contains the final messages and status. Token tracking data is accumulated
-    in SessionManager via /v1/chat/completions requests during the rollout.
+    Contains the final messages and status. Token tracking for training is
+    accumulated on the training side via /v1/chat/completions requests.
 
     num_turns in AgentLoopOutput
     ────────────────────────────
@@ -201,9 +206,19 @@ class RolloutResponse(BaseModel):
 
     rollout_id: str  # Echoed back for correlation
     status: RolloutStatus  # COMPLETED or ERROR
-    final_messages: List[Message] = Field(default_factory=list)
+    final_messages: List[MessageDict] = Field(default_factory=list)
     finish_reason: Optional[str] = None  # See docstring for standard values
     error_message: Optional[str] = None
     metrics: Optional[RolloutMetrics] = None  # Contains num_llm_calls for num_turns
     extra_fields: Dict[str, Any] = Field(default_factory=dict)
+
+
+class InitResponse(BaseModel):
+    """Response body for POST /init (202 Accepted).
+
+    Provides the tool definitions available for this rollout.
+    """
+
+    rollout_id: str
+    tools: List[OpenAIFunctionToolSchema] = Field(default_factory=list)
 

@@ -263,66 +263,78 @@ async def execute_calculator_calls(tool_calls: List[Dict[str, Any]]) -> List[Dic
 # Tool Schema (for LLM tool description)
 # =============================================================================
 
+from rollout_server.schemas import (
+    OpenAIFunctionPropertySchema,
+    OpenAIFunctionParametersSchema,
+    OpenAIFunctionSchema,
+    OpenAIFunctionToolSchema,
+)
 
-CALCULATOR_TOOL_SCHEMAS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "add",
-            "description": "Add two numbers",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "a": {"type": "number", "description": "First number"},
-                    "b": {"type": "number", "description": "Second number"}
+
+def _make_number_property(description: str) -> OpenAIFunctionPropertySchema:
+    """Helper to create a number property schema."""
+    return OpenAIFunctionPropertySchema(type="number", description=description)
+
+
+CALCULATOR_TOOL_SCHEMAS: List[OpenAIFunctionToolSchema] = [
+    OpenAIFunctionToolSchema(
+        type="function",
+        function=OpenAIFunctionSchema(
+            name="add",
+            description="Add two numbers",
+            parameters=OpenAIFunctionParametersSchema(
+                type="object",
+                properties={
+                    "a": _make_number_property("First number"),
+                    "b": _make_number_property("Second number"),
                 },
-                "required": ["a", "b"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "subtract",
-            "description": "Subtract two numbers",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "a": {"type": "number", "description": "First number"},
-                    "b": {"type": "number", "description": "Second number to subtract from first"}
+                required=["a", "b"],
+            ),
+        ),
+    ),
+    OpenAIFunctionToolSchema(
+        type="function",
+        function=OpenAIFunctionSchema(
+            name="subtract",
+            description="Subtract two numbers",
+            parameters=OpenAIFunctionParametersSchema(
+                type="object",
+                properties={
+                    "a": _make_number_property("First number"),
+                    "b": _make_number_property("Second number to subtract from first"),
                 },
-                "required": ["a", "b"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "multiply",
-            "description": "Multiply two numbers",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "a": {"type": "number", "description": "First number"},
-                    "b": {"type": "number", "description": "Second number"}
+                required=["a", "b"],
+            ),
+        ),
+    ),
+    OpenAIFunctionToolSchema(
+        type="function",
+        function=OpenAIFunctionSchema(
+            name="multiply",
+            description="Multiply two numbers",
+            parameters=OpenAIFunctionParametersSchema(
+                type="object",
+                properties={
+                    "a": _make_number_property("First number"),
+                    "b": _make_number_property("Second number"),
                 },
-                "required": ["a", "b"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "divide",
-            "description": "Divide two numbers",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "a": {"type": "number", "description": "Numerator"},
-                    "b": {"type": "number", "description": "Denominator (cannot be zero)"}
+                required=["a", "b"],
+            ),
+        ),
+    ),
+    OpenAIFunctionToolSchema(
+        type="function",
+        function=OpenAIFunctionSchema(
+            name="divide",
+            description="Divide two numbers",
+            parameters=OpenAIFunctionParametersSchema(
+                type="object",
+                properties={
+                    "a": _make_number_property("Numerator"),
+                    "b": _make_number_property("Denominator (cannot be zero)"),
                 },
-                "required": ["a", "b"]
-            }
-        }
-    }
+                required=["a", "b"],
+            ),
+        ),
+    ),
 ]
