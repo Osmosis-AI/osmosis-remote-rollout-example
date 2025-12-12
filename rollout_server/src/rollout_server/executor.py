@@ -36,10 +36,14 @@ ToolSchemaDict = Dict[str, Any]
 ToolCallDict = Dict[str, Any]
 
 
-@dataclass(frozen=True)
+@dataclass
 class RolloutRecord:
     tools: List[ToolSchemaDict]
-    task: asyncio.Task
+    # Task is released on completion to avoid retaining coroutine locals.
+    task: Optional[asyncio.Task]
+    created_at: float
+    completed_at: Optional[float] = None
+    last_accessed_at: float = 0.0
 
 
 class AppState:
@@ -52,6 +56,60 @@ class AppState:
 
         # Idempotency registry keyed by rollout_id.
         self.rollout_records: Dict[str, RolloutRecord] = {}
+
+    def prune_rollout_records(self) -> None:
+        """Prune completed rollout records to bound memory usage.
+
+        Notes:
+        - We keep completed rollout_id records for a short TTL to preserve idempotency
+          across transient client retries (e.g., /init response lost).
+        - We drop references to finished asyncio.Tasks to avoid retaining large local
+          objects (messages, responses) after completion.
+        """
+        if not self.rollout_records:
+            return
+
+        now = time.time()
+        ttl_seconds = float(getattr(settings, "rollout_record_ttl_seconds", 0.0))
+        max_records = int(getattr(settings, "max_rollout_records", 0))
+
+        # 1) TTL pruning (completed only)
+        if ttl_seconds > 0:
+            expired_ids: List[str] = []
+            for rollout_id, record in list(self.rollout_records.items()):
+                if record.completed_at is None:
+                    continue
+                if (now - record.completed_at) > ttl_seconds:
+                    expired_ids.append(rollout_id)
+            for rollout_id in expired_ids:
+                self.rollout_records.pop(rollout_id, None)
+
+        # 2) Size-based pruning (evict oldest completed first)
+        if max_records > 0 and len(self.rollout_records) > max_records:
+            completed: List[tuple[str, float]] = [
+                (rollout_id, float(record.completed_at))
+                for rollout_id, record in self.rollout_records.items()
+                if record.completed_at is not None
+            ]
+            completed.sort(key=lambda x: x[1])
+
+            to_evict = len(self.rollout_records) - max_records
+            evict_count = min(to_evict, len(completed))
+            for rollout_id, _ts in completed[:evict_count]:
+                self.rollout_records.pop(rollout_id, None)
+
+            if len(self.rollout_records) > max_records:
+                # Remaining overflow is from in-progress tasks (we do not evict them).
+                logger.warning(
+                    "rollout_records exceeded max_rollout_records=%s with in-progress tasks=%s. "
+                    "Consider increasing MAX_ROLLOUT_RECORDS.",
+                    max_records,
+                    sum(
+                        1
+                        for r in self.rollout_records.values()
+                        if r.task is not None and not r.task.done()
+                    ),
+                )
 
     @property
     def rollout_semaphore(self) -> asyncio.Semaphore:
@@ -94,11 +152,20 @@ def start_rollout(request: RolloutRequest, tools: List[ToolSchemaDict]) -> List[
     """
     rollout_id = request.rollout_id
 
+    # Opportunistic pruning on new init requests.
+    app_state.prune_rollout_records()
+
     record = app_state.rollout_records.get(rollout_id)
     if record is not None:
+        record.last_accessed_at = time.time()
+        # Ensure we don't retain a finished task object indefinitely.
+        if record.task is not None and record.task.done():
+            record.completed_at = record.completed_at or time.time()
+            record.task = None
         return record.tools
 
     tools_value = list(tools)
+    created_at = time.time()
     task = asyncio.create_task(_run_rollout_task(request=request, tools=tools_value))
 
     def _on_done(t: asyncio.Task) -> None:
@@ -108,9 +175,22 @@ def start_rollout(request: RolloutRequest, tools: List[ToolSchemaDict]) -> List[
             logger.info(f"[{rollout_id}] Rollout task cancelled")
         except Exception:
             logger.exception(f"[{rollout_id}] Rollout task crashed")
+        finally:
+            # Mark record complete and drop task reference to avoid memory retention.
+            record = app_state.rollout_records.get(rollout_id)
+            if record is not None:
+                record.completed_at = record.completed_at or time.time()
+                record.task = None
+            app_state.prune_rollout_records()
 
     task.add_done_callback(_on_done)
-    app_state.rollout_records[rollout_id] = RolloutRecord(tools=tools_value, task=task)
+    app_state.rollout_records[rollout_id] = RolloutRecord(
+        tools=tools_value,
+        task=task,
+        created_at=created_at,
+        completed_at=None,
+        last_accessed_at=created_at,
+    )
     return tools_value
 
 
@@ -165,11 +245,21 @@ async def _post_rollout_completed(
     response: RolloutResponse,
 ) -> None:
     client = await app_state.get_http_client()
-    await client.post(
+    resp = await client.post(
         f"{server_url}/v1/rollout/completed",
         json=response.model_dump(mode="json", exclude_none=True),
         headers=_auth_headers(api_key),
     )
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError:
+        logger.error(
+            "[%s] /v1/rollout/completed callback failed: status=%s body=%s",
+            response.rollout_id,
+            resp.status_code,
+            resp.text,
+        )
+        raise
 
 
 def _categorize_trainer_http_error(error: httpx.HTTPStatusError) -> Dict[str, Any]:

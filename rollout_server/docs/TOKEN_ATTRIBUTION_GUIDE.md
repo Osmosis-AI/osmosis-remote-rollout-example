@@ -1,11 +1,15 @@
-# Token Attribution Guide (Append-only Messages)
+# Token Attribution & Append-only Conversation Guide
 
 This guide explains the most important correctness requirement for remote rollout:
 **the message history must be append-only across turns**.
 
-In this protocol, the training side is responsible for tokenization and training-time
-mask construction. RolloutServer must maintain a stable, append-only conversation
-so the training side can accumulate token tracking data across multiple LLM calls.
+In Traingate's remote rollout implementation, the training side is responsible for:
+- Tokenization
+- Training-time token tracking
+- Constructing the PPO `response_mask`
+
+Because of this, RolloutServer must maintain a stable, append-only conversation so the
+training side can align prompt tokens across multiple LLM calls.
 
 ## Why append-only matters
 
@@ -14,9 +18,8 @@ Remote rollout is multi-turn:
 - Turn 1: RolloutServer calls the training side for an assistant message.
 - Turn 2+: RolloutServer appends tool results and calls again.
 
-The training side records tokens across these calls. If earlier messages change,
-then the training side can no longer align the new prompt with the previously
-recorded token prefix.
+The training side records tokens across these calls. If earlier messages change, then
+it can no longer align the new prompt with the previously recorded prompt token prefix.
 
 ## Requirements
 
@@ -46,8 +49,8 @@ Example:
 
 ### 3) Idempotency
 
-`rollout_id` is an idempotency key for `POST /init`. Repeated `/init` with the
-same `rollout_id` must not start duplicate rollouts.
+`rollout_id` is an idempotency key for `POST /init`. Repeated `/init` with the same
+`rollout_id` must not start duplicate rollouts.
 
 ### 4) Completion callback
 
