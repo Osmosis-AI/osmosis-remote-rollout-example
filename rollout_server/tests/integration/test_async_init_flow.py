@@ -74,3 +74,4 @@ def test_init_is_idempotent_by_rollout_id(mock_trainer_with_completion):
     # Give the server a brief window; it should not post a second completion.
     time.sleep(0.5)
     assert len(tracker["responses"]) == 1
+
