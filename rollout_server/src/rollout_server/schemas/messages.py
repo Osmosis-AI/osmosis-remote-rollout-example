@@ -12,7 +12,7 @@ from rollout_server.schemas.constants import VALID_MESSAGE_ROLES
 
 
 # =============================================================================
-# Tool Definition Schemas (GET /tools endpoint)
+# Tool Definition Schemas (InitResponse.tools)
 # =============================================================================
 
 
@@ -50,12 +50,10 @@ class ToolDefinition(BaseModel):
 
 
 class ToolsResponse(BaseModel):
-    """Response from RolloutServer GET /tools endpoint.
+    """Response wrapper containing tool definitions.
 
-    Contains the list of available tools that the LLM can use during rollout.
-    This is fetched once at worker startup and used for apply_chat_template().
-
-    Specification: docs/rollout_server.md Section 3.0
+    Tool definitions are provided to the training side as part of the
+    InitResponse for a rollout.
     """
 
     tools: List[ToolDefinition] = Field(default_factory=list)

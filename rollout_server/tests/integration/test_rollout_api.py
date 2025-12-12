@@ -1,141 +1,75 @@
-"""Integration tests for rollout API.
+"""Integration tests for the async-init rollout API.
 
-These tests verify the /rollout endpoint with in-process mock servers.
-No external services required - everything runs within pytest using TestClient.
-
-Note: This file uses shared fixtures from conftest.py:
-- mock_trainer_app: Mock trainer FastAPI app
-- mock_trainer_client: TestClient with httpx monkey-patching
-- tokenizer: Session-scoped tokenizer for performance
+These tests run the RolloutServer FastAPI app in-process and intercept its
+trainer callbacks using an in-process mock trainer.
 """
 
+import time
 import uuid
 
 import pytest
 from fastapi.testclient import TestClient
 
 from rollout_server.server import app as rollout_app
-from rollout_server.schemas import Message, RolloutRequest
 
 
-# Note: mock_trainer_app and mock_trainer_client fixtures are now in conftest.py
-# This removes code duplication and ensures consistent mock behavior across tests
-
-
-# Integration tests
-
-@pytest.mark.asyncio
 @pytest.mark.integration
-async def test_rollout_endpoint_with_mock_trainer(mock_trainer_client):
-    """Test /rollout endpoint with in-process mock trainer."""
-    rollout_client = TestClient(rollout_app)
+def test_init_endpoint_returns_202_and_tools(mock_trainer_with_completion):
+    _client, tracker = mock_trainer_with_completion
 
-    # Prepare rollout request
-    rollout_request = RolloutRequest(
-        rollout_id=str(uuid.uuid4()),
-        server_url="http://mock-trainer:9001",  # Will be intercepted by mock
-        messages=[
-            Message(
-                role="system",
-                content="You are a helpful calculator assistant with access to calculator tools."
-            ),
-            Message(
-                role="user",
-                content="Please calculate 5 plus 3."
-            )
+    rollout_id = str(uuid.uuid4())
+    payload = {
+        "rollout_id": rollout_id,
+        "server_url": "http://mock-trainer:9001",
+        "messages": [
+            {"role": "user", "content": "Please calculate 5 plus 3."},
         ],
-        sampling_params={
+        "completion_params": {
             "temperature": 0.7,
             "top_p": 0.9,
-            "max_tokens": 512,
-            "logprobs": True
+            "max_tokens": 128,
+            "logprobs": True,
         },
-        tokenizer_name="Qwen/Qwen3-8B",
-        tokenizer_revision="main",
-        max_turns=10,
-        max_tokens_total=8192
-    )
+        "max_turns": 10,
+        "max_tokens_total": 8192,
+    }
 
-    # Send rollout request
-    response = rollout_client.post(
-        "/rollout",
-        json=rollout_request.model_dump()
-    )
+    with TestClient(rollout_app) as rollout_client:
+        resp = rollout_client.post("/init", json=payload)
+        assert resp.status_code == 202, resp.text
 
-    # Verify response
-    assert response.status_code == 200, f"Request failed: {response.text}"
+        body = resp.json()
+        assert body["rollout_id"] == rollout_id
+        assert isinstance(body["tools"], list)
+        assert len(body["tools"]) > 0
 
-    result = response.json()
-    assert result["status"] == "COMPLETED"
-    assert "final_messages" in result
-    assert len(result["final_messages"]) > 0
+        # Wait for completion callback.
+        ok = tracker["event"].wait(timeout=5.0)
+        assert ok, "Timed out waiting for /v1/rollout/completed callback"
 
-    # Verify conversation structure
-    roles = [msg["role"] for msg in result["final_messages"]]
-    assert "system" in roles
-    assert "user" in roles
-    assert "assistant" in roles
+    assert len(tracker["responses"]) == 1
+    completed = tracker["responses"][0]
+    assert completed["rollout_id"] == rollout_id
+    assert completed["status"] == "COMPLETED"
+    assert isinstance(completed.get("final_messages"), list)
+    assert len(completed["final_messages"]) >= 2
+
+    metrics = completed.get("metrics") or {}
+    assert metrics.get("num_llm_calls") == 2
+    assert metrics.get("num_tool_calls") == 1
 
 
-@pytest.mark.asyncio
 @pytest.mark.integration
-async def test_rollout_health_endpoint():
-    """Test /health endpoint."""
-    client = TestClient(rollout_app)
-    response = client.get("/health")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "healthy"
+def test_health_endpoint():
+    with TestClient(rollout_app) as client:
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "healthy"
 
 
-@pytest.mark.asyncio
 @pytest.mark.integration
-async def test_tools_endpoint():
-    """Test GET /tools endpoint returns available tool definitions.
-
-    This endpoint is called once at worker startup by the training cluster
-    to discover what tools are available for apply_chat_template().
-    """
-    client = TestClient(rollout_app)
-    response = client.get("/tools")
-
-    assert response.status_code == 200
-    data = response.json()
-
-    # Verify response structure
-    assert "tools" in data
-    assert isinstance(data["tools"], list)
-
-    # Verify at least one tool exists (calculator tools)
-    assert len(data["tools"]) > 0
-
-    # Verify tool structure follows OpenAI format
-    for tool in data["tools"]:
-        assert "type" in tool
-        assert tool["type"] == "function"
-        assert "function" in tool
-
-        func = tool["function"]
-        assert "name" in func
-        assert "description" in func
-        assert "parameters" in func
-
-        # Verify parameters follow JSON Schema format
-        params = func["parameters"]
-        assert params["type"] == "object"
-        assert "properties" in params
-        assert "required" in params
-
-
-@pytest.mark.asyncio
-@pytest.mark.integration
-async def test_rollout_with_invalid_request():
-    """Test /rollout endpoint with invalid request."""
-    client = TestClient(rollout_app)
-
-    # Send invalid request (missing required fields)
-    response = client.post("/rollout", json={"invalid": "data"})
-
-    # Should return 422 Unprocessable Entity for validation errors
-    assert response.status_code == 422
+def test_init_with_invalid_request_returns_422():
+    with TestClient(rollout_app) as client:
+        resp = client.post("/init", json={"invalid": "data"})
+        assert resp.status_code == 422

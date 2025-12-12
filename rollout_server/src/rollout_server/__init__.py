@@ -1,13 +1,11 @@
 """Remote Rollout Server - Reference implementation of the Remote Rollout Protocol.
 
-This package provides a FastAPI server that implements the callback-based protocol
-for driving agent loops in remote rollout scenarios.
-
-Public API:
-- RolloutSession: Manages a single rollout session with response_mask tracking
-- app: FastAPI application instance
-- Schemas: Message, RolloutRequest, RolloutResponse, etc.
-- Exceptions: RolloutError, TokenizerLoadError, ToolExecutionError, etc.
+This package provides a FastAPI server implementing an async-init remote rollout
+protocol:
+- Training calls POST /init and receives tools (202 Accepted).
+- RolloutServer drives the agent loop by calling back to
+  {server_url}/v1/chat/completions.
+- RolloutServer posts the final result to {server_url}/v1/rollout/completed.
 """
 
 from importlib.metadata import version, PackageNotFoundError
@@ -23,26 +21,21 @@ from rollout_server.schemas import (
     CompletionsChoice,
     CompletionsRequest,
     CompletionsResponse,
-    Message,
+    InitResponse,
     RolloutMetrics,
     RolloutRequest,
     RolloutResponse,
     RolloutStatus,
-    SamplingParams,
-    ToolCall,
-    ToolCallFunction,
 )
 from rollout_server.server import app
-from rollout_server.session import RolloutSession
-from rollout_server.executor import app_state, execute_rollout
+from rollout_server.executor import app_state, start_rollout
 
 __all__ = [
     # FastAPI app
     "app",
-    # Session and executor
-    "RolloutSession",
+    # Executor
     "app_state",
-    "execute_rollout",
+    "start_rollout",
     # Exceptions
     "RolloutError",
     "TokenizerLoadError",
@@ -53,14 +46,11 @@ __all__ = [
     "CompletionsChoice",
     "CompletionsRequest",
     "CompletionsResponse",
-    "Message",
+    "InitResponse",
     "RolloutMetrics",
     "RolloutRequest",
     "RolloutResponse",
     "RolloutStatus",
-    "SamplingParams",
-    "ToolCall",
-    "ToolCallFunction",
 ]
 
 # Single source of version truth: read from pyproject.toml via importlib.metadata

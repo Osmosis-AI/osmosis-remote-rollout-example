@@ -1,239 +1,126 @@
 """Core rollout execution logic for the Remote Rollout Server.
 
-This module contains the main execution logic that was extracted from server.py
-to improve maintainability and separation of concerns.
+Protocol flow (async-init):
+- Training -> RolloutServer: POST /init (returns 202 with tools).
+- RolloutServer -> Training: POST {server_url}/v1/chat/completions (LLM generations).
+- RolloutServer -> Training: POST {server_url}/v1/rollout/completed (final result).
 
-The executor handles:
-- Application state management (tokenizer cache, HTTP client)
-- Tokenizer loading with LRU caching
-- Core rollout execution with response_mask tracking
-- Error handling and metrics collection
+Rollouts are executed in background tasks keyed by rollout_id (idempotency key).
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 import httpx
-from cachetools import LRUCache
-from pydantic import ValidationError
-from transformers import AutoTokenizer
 
 from rollout_server.config import settings
-from rollout_server.exceptions import TokenizerLoadError, ToolExecutionError
 from rollout_server.schemas import (
-    Message,
+    CompletionsRequest,
+    CompletionsResponse,
     RolloutMetrics,
     RolloutRequest,
     RolloutResponse,
     RolloutStatus,
 )
-from rollout_server.session import RolloutSession
 from rollout_server.tools.calculator import execute_calculator_calls
-
 
 logger = logging.getLogger(__name__)
 
+MessageDict = Dict[str, Any]
+ToolSchemaDict = Dict[str, Any]
+ToolCallDict = Dict[str, Any]
 
-# =============================================================================
-# Application State
-# =============================================================================
+
+@dataclass(frozen=True)
+class RolloutRecord:
+    tools: List[ToolSchemaDict]
+    task: asyncio.Task
 
 
 class AppState:
-    """Application state managing shared resources.
-
-    This class manages resources that are shared across requests:
-    - HTTP client with connection pooling
-    - Tokenizer cache with LRU eviction
-    - Rate limiting semaphore
-
-    Thread Safety:
-    - tokenizer_cache uses asyncio.Lock for safe concurrent access
-    - rollout_semaphore limits concurrent rollouts
-    """
+    """Shared application state for the FastAPI service."""
 
     def __init__(self) -> None:
         self.http_client: Optional[httpx.AsyncClient] = None
-
-        # LRU cache with configurable size (~1-2GB per tokenizer)
-        # Async-safe lock for concurrent FastAPI requests
-        self._tokenizer_cache_lock = asyncio.Lock()
-        self.tokenizer_cache: LRUCache = LRUCache(maxsize=settings.tokenizer_cache_size)
-
-        # Semaphore for rate limiting concurrent rollouts
+        self._http_client_lock = asyncio.Lock()
         self._rollout_semaphore: Optional[asyncio.Semaphore] = None
+
+        # Idempotency registry keyed by rollout_id.
+        self.rollout_records: Dict[str, RolloutRecord] = {}
 
     @property
     def rollout_semaphore(self) -> asyncio.Semaphore:
-        """Lazy initialization of rollout semaphore.
-
-        Must be created in async context (after event loop is running).
-        """
         if self._rollout_semaphore is None:
             self._rollout_semaphore = asyncio.Semaphore(settings.max_concurrent_rollouts)
         return self._rollout_semaphore
 
     async def initialize(self) -> None:
-        """Initialize async resources (call during app startup)."""
         self.http_client = httpx.AsyncClient(
             timeout=settings.http_client_timeout,
-            limits=httpx.Limits(max_keepalive_connections=20, max_connections=100)
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
         )
 
     async def cleanup(self) -> None:
-        """Cleanup resources (call during app shutdown)."""
-        if self.http_client:
+        if self.http_client is not None:
             await self.http_client.aclose()
             self.http_client = None
 
+    async def get_http_client(self) -> httpx.AsyncClient:
+        """Get or lazily create the shared HTTP client."""
+        if self.http_client is not None:
+            return self.http_client
+        async with self._http_client_lock:
+            if self.http_client is None:
+                self.http_client = httpx.AsyncClient(
+                    timeout=settings.http_client_timeout,
+                    limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
+                )
+        # mypy: self.http_client is not None here
+        return self.http_client
 
-# Global application state instance
+
 app_state = AppState()
 
 
-# =============================================================================
-# Tokenizer Loading
-# =============================================================================
+def start_rollout(request: RolloutRequest, tools: List[ToolSchemaDict]) -> List[ToolSchemaDict]:
+    """Start a background rollout task (idempotent by rollout_id).
 
-
-def load_tokenizer(tokenizer_name: str, tokenizer_revision: Optional[str] = None) -> AutoTokenizer:
-    """Load tokenizer matching the trainer's configuration.
-
-    CRITICAL: Must use the EXACT same tokenizer as the trainer for token ID consistency.
-
-    Args:
-        tokenizer_name: Model name (e.g., "Qwen/Qwen3-8B")
-        tokenizer_revision: Git revision (e.g., "main" or commit hash)
-
-    Returns:
-        Loaded tokenizer instance
-
-    Reference: docs/rollout_server.md Section 2.2 (Tokenizer Alignment)
-
-    Security Note:
-        trust_remote_code is controlled by TOKENIZER_TRUST_REMOTE_CODE env var.
-        Default is True for Qwen3 models. Set to "false" only for standard tokenizers.
+    Returns the tool list to include in the InitResponse.
     """
-    logger.info(
-        f"Loading tokenizer: {tokenizer_name} (revision={tokenizer_revision}, "
-        f"trust_remote_code={settings.tokenizer_trust_remote_code})"
-    )
+    rollout_id = request.rollout_id
 
-    # NOTE: trust_remote_code allows execution of custom code from the model repository.
-    # This is required for models like Qwen that have custom tokenizer implementations.
-    # Controlled via TOKENIZER_TRUST_REMOTE_CODE environment variable for security.
-    tokenizer = AutoTokenizer.from_pretrained(
-        tokenizer_name,
-        revision=tokenizer_revision,
-        trust_remote_code=settings.tokenizer_trust_remote_code
-    )
+    record = app_state.rollout_records.get(rollout_id)
+    if record is not None:
+        return record.tools
 
-    # Ensure tokenizer has pad_token (required for batching)
-    # This is a standard practice and doesn't affect response_mask calculation
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    tools_value = list(tools)
+    task = asyncio.create_task(_run_rollout_task(request=request, tools=tools_value))
 
-    # CRITICAL: Fail fast if tokenizer doesn't have chat_template
-    # Using a default chat template would cause token count mismatches with the
-    # training cluster, leading to incorrect response_mask calculation and
-    # training data corruption.
-    if tokenizer.chat_template is None:
-        raise TokenizerLoadError(
-            f"Tokenizer {tokenizer_name} does not have a chat_template. "
-            "Using a default template would cause token count mismatches with the "
-            "training cluster and corrupt response_mask calculation. "
-            "Please use a tokenizer with a proper chat_template or configure one "
-            "in the training infrastructure."
-        )
-
-    logger.info(f"Tokenizer loaded: vocab_size={tokenizer.vocab_size}")
-    return tokenizer
-
-
-async def get_or_load_tokenizer(
-    rollout_id: str,
-    tokenizer_name: str,
-    tokenizer_revision: Optional[str]
-) -> AutoTokenizer:
-    """Get tokenizer from cache or load it.
-
-    Uses double-checked locking pattern to minimize lock contention.
-
-    CRITICAL: tokenizer_name is REQUIRED (enforced by Pydantic schema).
-    Using a mismatched tokenizer will corrupt response_mask calculation
-    and training data.
-
-    Args:
-        rollout_id: For logging purposes
-        tokenizer_name: Model name (REQUIRED, validated by schema)
-        tokenizer_revision: Git revision or None
-
-    Returns:
-        Tokenizer instance
-
-    Raises:
-        TokenizerLoadError: If tokenizer cannot be loaded
-    """
-    cache_key = (tokenizer_name, tokenizer_revision)
-
-    # First check without lock (fast path for cached tokenizers)
-    tokenizer = app_state.tokenizer_cache.get(cache_key)
-    if tokenizer is not None:
-        logger.debug(f"[{rollout_id}] Using cached tokenizer: {cache_key[0]}")
-        return tokenizer
-
-    # Acquire lock only when we need to potentially load a new tokenizer
-    async with app_state._tokenizer_cache_lock:
-        # Double-check after acquiring lock
-        tokenizer = app_state.tokenizer_cache.get(cache_key)
-        if tokenizer is not None:
-            logger.debug(f"[{rollout_id}] Using cached tokenizer (loaded by another request): {cache_key[0]}")
-            return tokenizer
-
-        logger.info(f"[{rollout_id}] Loading tokenizer: {tokenizer_name}")
-
+    def _on_done(t: asyncio.Task) -> None:
         try:
-            # Load tokenizer in thread pool to avoid blocking event loop
-            tokenizer = await asyncio.to_thread(
-                load_tokenizer, tokenizer_name, tokenizer_revision
-            )
-        except Exception as e:
-            logger.error(f"[{rollout_id}] Failed to load tokenizer: {e}")
-            raise TokenizerLoadError(f"Failed to load tokenizer: {tokenizer_name}") from e
+            t.result()
+        except asyncio.CancelledError:
+            logger.info(f"[{rollout_id}] Rollout task cancelled")
+        except Exception:
+            logger.exception(f"[{rollout_id}] Rollout task crashed")
 
-        # Store in LRU cache
-        app_state.tokenizer_cache[cache_key] = tokenizer
-        logger.info(
-            f"[{rollout_id}] Cached tokenizer. "
-            f"Cache size: {len(app_state.tokenizer_cache)}/{app_state.tokenizer_cache.maxsize}"
-        )
-
-        return tokenizer
+    task.add_done_callback(_on_done)
+    app_state.rollout_records[rollout_id] = RolloutRecord(tools=tools_value, task=task)
+    return tools_value
 
 
-# =============================================================================
-# Helper Functions
-# =============================================================================
+def _auth_headers(api_key: Optional[str]) -> Dict[str, str]:
+    if not api_key:
+        return {}
+    return {"Authorization": f"Bearer {api_key}"}
 
 
-def parse_tool_calls(message: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Parse tool calls from assistant message.
-
-    Args:
-        message: Assistant message dict
-
-    Returns:
-        List of tool call dicts, or empty list if no tool calls
-    """
-    tool_calls = message.get("tool_calls", [])
-    if tool_calls:
-        logger.info(f"Parsed {len(tool_calls)} tool calls")
-    return tool_calls
-
-
-def create_metrics(
+def _create_metrics(
     start_time: float,
     llm_latency_ms: float,
     tool_latency_ms: float,
@@ -241,11 +128,10 @@ def create_metrics(
     num_tool_calls: int,
     prompt_tokens: int,
     response_tokens: int,
-    max_context_tokens: int = 0
+    max_context_tokens: int,
 ) -> RolloutMetrics:
-    """Create RolloutMetrics with calculated total latency."""
     return RolloutMetrics(
-        total_latency_ms=(time.time() - start_time) * 1000,
+        total_latency_ms=(time.time() - start_time) * 1000.0,
         llm_latency_ms=llm_latency_ms,
         tool_latency_ms=tool_latency_ms,
         num_llm_calls=num_llm_calls,
@@ -256,348 +142,200 @@ def create_metrics(
     )
 
 
-# =============================================================================
-# Core Rollout Execution
-# =============================================================================
+def _parse_tool_calls(assistant_message: MessageDict) -> List[ToolCallDict]:
+    tool_calls = assistant_message.get("tool_calls") or []
+    if isinstance(tool_calls, list):
+        return tool_calls
+    return []
 
 
-async def execute_rollout(request: RolloutRequest) -> RolloutResponse:
-    """Execute a complete rollout with rate limiting.
+def _normalize_stop(stop: Any) -> Optional[List[str]]:
+    if stop is None:
+        return None
+    if isinstance(stop, str):
+        return [stop]
+    if isinstance(stop, list):
+        return [str(s) for s in stop]
+    return None
 
-    This is the main entry point for rollout execution.
-    Wraps the core logic with semaphore-based rate limiting.
 
-    Args:
-        request: RolloutRequest from the API
+async def _post_rollout_completed(
+    server_url: str,
+    api_key: Optional[str],
+    response: RolloutResponse,
+) -> None:
+    client = await app_state.get_http_client()
+    await client.post(
+        f"{server_url}/v1/rollout/completed",
+        json=response.model_dump(mode="json", exclude_none=True),
+        headers=_auth_headers(api_key),
+    )
 
-    Returns:
-        RolloutResponse with final messages and status
-    """
+
+def _categorize_trainer_http_error(error: httpx.HTTPStatusError) -> Dict[str, Any]:
+    status_code = error.response.status_code
+    if status_code == 429:
+        return {"error_category": "rate_limited", "http_status": status_code}
+    if status_code >= 500:
+        return {"error_category": "trainer_server_error", "http_status": status_code}
+    if status_code >= 400:
+        return {"error_category": "trainer_client_error", "http_status": status_code}
+    return {"error_category": "trainer_error", "http_status": status_code}
+
+
+async def _call_chat_completions(
+    server_url: str,
+    api_key: Optional[str],
+    rollout_id: str,
+    messages: List[MessageDict],
+    completion_params: Dict[str, Any],
+) -> CompletionsResponse:
+    client = await app_state.get_http_client()
+
+    request = CompletionsRequest(
+        rollout_id=rollout_id,
+        messages=messages,
+        temperature=float(completion_params.get("temperature", 1.0)),
+        top_p=float(completion_params.get("top_p", 1.0)),
+        max_tokens=int(completion_params.get("max_tokens", 512)),
+        stop=_normalize_stop(completion_params.get("stop")),
+        logprobs=bool(completion_params.get("logprobs", True)),
+    )
+    payload = request.model_dump(mode="json", exclude_none=True)
+
+    resp = await client.post(
+        f"{server_url}/v1/chat/completions",
+        json=payload,
+        headers=_auth_headers(api_key),
+    )
+    resp.raise_for_status()
+    return CompletionsResponse.model_validate(resp.json())
+
+
+async def _run_rollout_task(request: RolloutRequest, tools: List[ToolSchemaDict]) -> None:
+    """Run a rollout and post completion callback."""
+    del tools  # Tools are provided to the trainer via InitResponse; not needed here.
+
     rollout_id = request.rollout_id
-
-    # Rate limiting via semaphore
-    async with app_state.rollout_semaphore:
-        logger.debug(f"[{rollout_id}] Acquired rollout semaphore")
-        return await _execute_rollout_core(request)
-
-
-async def _execute_rollout_core(request: RolloutRequest) -> RolloutResponse:
-    """Core rollout execution logic.
-
-    This function implements the agent loop:
-    1. Load tokenizer
-    2. Create RolloutSession
-    3. Loop: call LLM -> parse tools -> execute tools
-    4. Return final messages
-
-    Args:
-        request: RolloutRequest from the API
-
-    Returns:
-        RolloutResponse with final messages and status
-    """
-    rollout_id = request.rollout_id
-    session: Optional[RolloutSession] = None
-
-    # Initialize metrics tracking
     start_time = time.time()
-    total_llm_latency_ms = 0.0
-    total_tool_latency_ms = 0.0
+
+    llm_latency_ms = 0.0
+    tool_latency_ms = 0.0
     num_llm_calls = 0
     num_tool_calls = 0
     prompt_tokens = 0
     response_tokens = 0
+    max_context_tokens = 0
+    total_response_tokens = 0
 
-    debug_trace_enabled = bool(request.metadata.get("debug_trace"))
-    debug_trace: List[Dict[str, Any]] = []
+    status: RolloutStatus = RolloutStatus.COMPLETED
+    finish_reason: Optional[str] = None
+    error_message: Optional[str] = None
+    extra_fields: Dict[str, Any] = {}
+    final_messages: List[MessageDict] = []
 
-    def with_trace(extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        base = dict(extra or {})
-        if debug_trace_enabled:
-            base["trace"] = debug_trace
-        return base
+    # Copy messages to ensure we only append within this task.
+    messages: List[MessageDict] = list(request.messages)
 
     try:
-        # Load tokenizer (MUST match trainer's tokenizer!)
-        try:
-            tokenizer = await get_or_load_tokenizer(
-                rollout_id,
-                request.tokenizer_name,
-                request.tokenizer_revision
-            )
-        except TokenizerLoadError as e:
-                return RolloutResponse(
-                    rollout_id=rollout_id,
-                    status=RolloutStatus.ERROR,
-                    error_message=str(e),
-                    final_messages=[],
-                    extra_fields=with_trace({"error_category": "tokenizer_error"}),
-                    metrics=create_metrics(start_time, 0, 0, 0, 0, 0, 0)
-                )
+        async with app_state.rollout_semaphore:
+            async with asyncio.timeout(settings.rollout_timeout_seconds):
+                for turn in range(request.max_turns):
+                    logger.info(f"[{rollout_id}] Turn {turn + 1}/{request.max_turns}")
 
-        # Create session (manages response_mask calculation)
-        session = RolloutSession(
-            rollout_id=rollout_id,
-            tokenizer=tokenizer,
-            server_url=request.server_url,
-            http_client=app_state.http_client,
-            callback_api_key=request.callback_api_key
-        )
-
-        # Initialize messages
-        session.messages = [msg.model_dump() for msg in request.messages]
-
-        # Track total tokens for max_tokens_total enforcement
-        total_tokens = 0
-
-        # Agent loop
-        for turn in range(request.max_turns):
-            logger.info(f"[{rollout_id}] Turn {turn + 1}/{request.max_turns}, total_tokens={total_tokens}")
-
-            # 1. Call LLM (session handles response_mask calculation)
-            try:
-                llm_start = time.time()
-                completion_response = await session.call_llm(
-                    sampling_params=request.sampling_params.model_dump()
-                )
-                llm_end = time.time()
-
-                # Update metrics
-                total_llm_latency_ms += (llm_end - llm_start) * 1000
-                num_llm_calls += 1
-                prompt_tokens += len(completion_response.prompt_token_ids)
-                response_tokens += len(completion_response.token_ids)
-
-            except ValueError as e:
-                # response_mask calculation error (e.g., negative token count)
-                logger.error(f"[{rollout_id}] Response mask error: {e}")
-                return RolloutResponse(
-                    rollout_id=rollout_id,
-                    status=RolloutStatus.ERROR,
-                    error_message=f"Invalid conversation state (possible context truncation): {e}",
-                    final_messages=[],
-                    extra_fields=with_trace(),
-                    metrics=create_metrics(
-                        start_time, total_llm_latency_ms, total_tool_latency_ms,
-                        num_llm_calls, num_tool_calls, prompt_tokens, response_tokens
+                    llm_start = time.time()
+                    completion = await _call_chat_completions(
+                        server_url=request.server_url,
+                        api_key=request.api_key,
+                        rollout_id=rollout_id,
+                        messages=messages,
+                        completion_params=request.completion_params,
                     )
-                )
+                    llm_latency_ms += (time.time() - llm_start) * 1000.0
+                    num_llm_calls += 1
 
-            # 2. Track token usage for max_tokens_total enforcement
-            total_tokens += len(completion_response.token_ids)
-            if total_tokens >= request.max_tokens_total:
-                logger.info(f"[{rollout_id}] Token limit reached: {total_tokens}/{request.max_tokens_total}")
-                return RolloutResponse(
-                    rollout_id=rollout_id,
-                    status=RolloutStatus.COMPLETED,
-                    final_messages=[Message(**msg) for msg in session.messages],
-                    finish_reason="max_tokens",
-                    extra_fields=with_trace(),
-                    metrics=create_metrics(
-                        start_time, total_llm_latency_ms, total_tool_latency_ms,
-                        num_llm_calls, num_tool_calls, prompt_tokens, response_tokens, total_tokens
-                    )
-                )
+                    prompt_len = len(completion.prompt_token_ids)
+                    resp_len = len(completion.token_ids)
+                    prompt_tokens += prompt_len
+                    response_tokens += resp_len
+                    max_context_tokens = max(max_context_tokens, prompt_len)
+                    total_response_tokens += resp_len
 
-            # 3. Extract assistant message
-            assistant_message = completion_response.choices[0].message.model_dump()
-            session.append_assistant_message(assistant_message)
+                    assistant_message = completion.choices[0].message
+                    messages.append(assistant_message)
 
-            # 4. Check for tool calls
-            tool_calls = parse_tool_calls(assistant_message)
-            if not tool_calls:
-                if debug_trace_enabled:
-                    debug_trace.append({
-                        "turn": turn + 1,
-                        "llm_request": {
-                            "prompt_length": session.last_debug_info.get("prompt_length") if session.last_debug_info else None,
-                            "response_mask_len": len(session.last_debug_info["response_mask"]) if session.last_debug_info and session.last_debug_info.get("response_mask") is not None else None,
-                        },
-                        "assistant_message": assistant_message,
-                        "tool_calls": [],
-                        "tool_results": [],
-                        "llm_response_token_count": session.last_debug_info.get("llm_token_count") if session.last_debug_info else None,
-                    })
-                # No tool calls - conversation done
-                logger.info(f"[{rollout_id}] No tool calls, conversation complete")
-                return RolloutResponse(
-                    rollout_id=rollout_id,
-                    status=RolloutStatus.COMPLETED,
-                    final_messages=[Message(**msg) for msg in session.messages],
-                    finish_reason="stop",
-                    extra_fields=with_trace(),
-                    metrics=create_metrics(
-                        start_time, total_llm_latency_ms, total_tool_latency_ms,
-                        num_llm_calls, num_tool_calls, prompt_tokens, response_tokens, total_tokens
-                    )
-                )
+                    tool_calls = _parse_tool_calls(assistant_message)
+                    if not tool_calls:
+                        finish_reason = completion.choices[0].finish_reason or "stop"
+                        break
 
-            # 5. Execute tools
-            try:
-                tool_start = time.time()
-                logger.info(f"[{rollout_id}] Executing {len(tool_calls)} tool calls:")
-                for idx, tc in enumerate(tool_calls):
-                    func_name = tc.get("function", {}).get("name", "unknown")
-                    func_args = tc.get("function", {}).get("arguments", "{}")
-                    logger.info(f"[{rollout_id}]   Tool[{idx}]: {func_name}({func_args})")
+                    tool_start = time.time()
+                    tool_results = await execute_calculator_calls(tool_calls)
+                    tool_latency_ms += (time.time() - tool_start) * 1000.0
+                    num_tool_calls += len(tool_calls)
 
-                tool_results = await execute_calculator_calls(tool_calls)
-                tool_end = time.time()
+                    messages.extend(tool_results)
 
-                logger.info(f"[{rollout_id}] Tool execution completed in {(tool_end - tool_start) * 1000:.2f}ms:")
-                for idx, result in enumerate(tool_results):
-                    logger.info(f"[{rollout_id}]   Result[{idx}]: {result.get('content', 'N/A')}")
+                    if total_response_tokens >= request.max_tokens_total:
+                        finish_reason = "max_tokens"
+                        break
+                else:
+                    finish_reason = "max_turns"
 
-                # Update metrics
-                total_tool_latency_ms += (tool_end - tool_start) * 1000
-                num_tool_calls += len(tool_calls)
+                final_messages = messages
 
-            except Exception as e:
-                logger.error(f"[{rollout_id}] Tool execution failed: {e}")
-                raise ToolExecutionError(f"Failed to execute tools: {e}") from e
-
-            # 6. Append tool outputs (session tracks for next response_mask)
-            session.append_tool_outputs(tool_results)
-
-            if debug_trace_enabled:
-                debug_trace.append({
-                    "turn": turn + 1,
-                    "llm_request": {
-                        "prompt_length": session.last_debug_info.get("prompt_length") if session.last_debug_info else None,
-                        "response_mask_len": len(session.last_debug_info["response_mask"]) if session.last_debug_info and session.last_debug_info.get("response_mask") is not None else None,
-                    },
-                    "assistant_message": assistant_message,
-                    "tool_calls": tool_calls,
-                    "tool_results": tool_results,
-                    "llm_response_token_count": session.last_debug_info.get("llm_token_count") if session.last_debug_info else None,
-                })
-
-        # Max turns reached
-        logger.info(f"[{rollout_id}] Max turns reached")
-        return RolloutResponse(
-            rollout_id=rollout_id,
-            status=RolloutStatus.COMPLETED,
-            final_messages=[Message(**msg) for msg in session.messages],
-            finish_reason="max_turns",
-            extra_fields=with_trace(),
-            metrics=create_metrics(
-                start_time, total_llm_latency_ms, total_tool_latency_ms,
-                num_llm_calls, num_tool_calls, prompt_tokens, response_tokens, total_tokens
-            )
-        )
+    except TimeoutError:
+        status = RolloutStatus.ERROR
+        error_message = f"Rollout timeout exceeded ({settings.rollout_timeout_seconds}s)"
+        extra_fields = {"error_category": "timeout"}
 
     except httpx.HTTPStatusError as e:
-        return _handle_http_error(rollout_id, e, start_time, total_llm_latency_ms,
-                                   total_tool_latency_ms, num_llm_calls, num_tool_calls,
-                                   prompt_tokens, response_tokens)
+        status = RolloutStatus.ERROR
+        extra_fields = _categorize_trainer_http_error(e)
+        error_message = "Trainer returned an error"
+        logger.error(
+            f"[{rollout_id}] Trainer HTTP error: {e.response.status_code} - {e.response.text}"
+        )
 
     except httpx.RequestError as e:
-        logger.error(f"[{rollout_id}] Network error: {e}")
-        return RolloutResponse(
-            rollout_id=rollout_id,
-            status=RolloutStatus.ERROR,
-            error_message="Network error communicating with trainer",
-            final_messages=[],
-            extra_fields=with_trace({"error_category": "network_error"}),
-            metrics=create_metrics(
-                start_time, total_llm_latency_ms, total_tool_latency_ms,
-                num_llm_calls, num_tool_calls, prompt_tokens, response_tokens
-            )
-        )
+        status = RolloutStatus.ERROR
+        error_message = "Network error communicating with trainer"
+        extra_fields = {"error_category": "network_error"}
+        logger.error(f"[{rollout_id}] Trainer network error: {e}")
 
-    except ToolExecutionError as e:
-        logger.error(f"[{rollout_id}] Tool execution error: {e}")
-        return RolloutResponse(
-            rollout_id=rollout_id,
-            status=RolloutStatus.ERROR,
-            error_message=str(e),
-            final_messages=[],
-            extra_fields=with_trace({"error_category": "tool_error"}),
-            metrics=create_metrics(
-                start_time, total_llm_latency_ms, total_tool_latency_ms,
-                num_llm_calls, num_tool_calls, prompt_tokens, response_tokens
-            )
-        )
+    except Exception:
+        status = RolloutStatus.ERROR
+        error_message = "Internal server error"
+        extra_fields = {"error_category": "internal_error"}
+        logger.exception(f"[{rollout_id}] Unexpected error during rollout")
 
-    except ValidationError as e:
-        logger.error(f"[{rollout_id}] Validation error: {e}")
-        return RolloutResponse(
-            rollout_id=rollout_id,
-            status=RolloutStatus.ERROR,
-            error_message=f"Invalid request data: {e}",
-            final_messages=[],
-            extra_fields=with_trace({"error_category": "validation_error"}),
-            metrics=create_metrics(
-                start_time, total_llm_latency_ms, total_tool_latency_ms,
-                num_llm_calls, num_tool_calls, prompt_tokens, response_tokens
-            )
-        )
-
-    except Exception as e:
-        # Unexpected internal error - DO NOT expose details
-        logger.exception(f"[{rollout_id}] Unexpected internal error")
-        return RolloutResponse(
-            rollout_id=rollout_id,
-            status=RolloutStatus.ERROR,
-            error_message="Internal server error",
-            final_messages=[],
-            extra_fields=with_trace({"error_category": "internal_error"}),
-            metrics=create_metrics(
-                start_time, total_llm_latency_ms, total_tool_latency_ms,
-                num_llm_calls, num_tool_calls, prompt_tokens, response_tokens
-            )
-        )
-
-    finally:
-        # Cleanup session
-        if session:
-            try:
-                await session.close()
-            except Exception as close_error:
-                logger.warning(f"[{rollout_id}] Error closing session: {close_error}")
-
-
-def _handle_http_error(
-    rollout_id: str,
-    error: httpx.HTTPStatusError,
-    start_time: float,
-    llm_latency_ms: float,
-    tool_latency_ms: float,
-    num_llm_calls: int,
-    num_tool_calls: int,
-    prompt_tokens: int,
-    response_tokens: int
-) -> RolloutResponse:
-    """Handle HTTP errors from trainer with categorization."""
-    status_code = error.response.status_code
-    logger.error(
-        f"[{rollout_id}] HTTP error from trainer: "
-        f"{status_code} - {error.response.text}"
+    metrics = _create_metrics(
+        start_time=start_time,
+        llm_latency_ms=llm_latency_ms,
+        tool_latency_ms=tool_latency_ms,
+        num_llm_calls=num_llm_calls,
+        num_tool_calls=num_tool_calls,
+        prompt_tokens=prompt_tokens,
+        response_tokens=response_tokens,
+        max_context_tokens=max_context_tokens,
     )
 
-    # Categorize error to determine retry strategy
-    if status_code == 429:
-        error_category = "rate_limited"
-        error_message = "Trainer rate limit exceeded (429)"
-    elif status_code >= 500:
-        error_category = "trainer_server_error"
-        error_message = f"Trainer server error (status {status_code}) - retryable"
-    elif status_code >= 400:
-        error_category = "trainer_client_error"
-        error_message = f"Trainer client error (status {status_code}) - check request"
-    else:
-        error_category = "trainer_error"
-        error_message = f"Trainer returned error (status {status_code})"
-
-    return RolloutResponse(
+    rollout_response = RolloutResponse(
         rollout_id=rollout_id,
-        status=RolloutStatus.ERROR,
-        error_message=error_message,
-        final_messages=[],
-        extra_fields={"error_category": error_category, "http_status": status_code},
-        metrics=create_metrics(
-            start_time, llm_latency_ms, tool_latency_ms,
-            num_llm_calls, num_tool_calls, prompt_tokens, response_tokens
-        )
+        status=status,
+        final_messages=final_messages if status == RolloutStatus.COMPLETED else [],
+        finish_reason=finish_reason if status == RolloutStatus.COMPLETED else None,
+        error_message=error_message if status == RolloutStatus.ERROR else None,
+        metrics=metrics,
+        extra_fields=extra_fields,
     )
 
+    try:
+        await _post_rollout_completed(
+            server_url=request.server_url,
+            api_key=request.api_key,
+            response=rollout_response,
+        )
+        logger.info(f"[{rollout_id}] Posted rollout completion: status={status.value}")
+    except Exception:
+        logger.exception(f"[{rollout_id}] Failed to post rollout completion callback")
