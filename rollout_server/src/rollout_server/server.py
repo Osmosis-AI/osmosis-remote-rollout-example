@@ -9,6 +9,7 @@ This server implements an async-init protocol:
 
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -22,12 +23,34 @@ from rollout_server.schemas import (
 from rollout_server.tools.calculator import CALCULATOR_TOOL_SCHEMAS
 
 
+# Custom formatter that explicitly uses local time
+class LocalTimeFormatter(logging.Formatter):
+    """Formatter that uses local time with timezone info."""
+    converter = time.localtime
+
+    def formatTime(self, record, datefmt=None):
+        ct = self.converter(record.created)
+        if datefmt:
+            # Add timezone abbreviation
+            s = time.strftime(datefmt, ct)
+            tz = time.strftime("%Z", ct)
+            return f"{s} {tz}"
+        else:
+            t = time.strftime("%Y-%m-%d %H:%M:%S", ct)
+            tz = time.strftime("%Z", ct)
+            return f"{t},{int(record.msecs):03d} {tz}"
+
+
 # Configure logging for all rollout_server modules
 # This ensures all submodules (session, executor, etc.) inherit the configuration
 root_logger = logging.getLogger("rollout_server")
 if not root_logger.handlers:
     handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+    formatter = LocalTimeFormatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    handler.setFormatter(formatter)
     root_logger.addHandler(handler)
     root_logger.setLevel(logging.INFO)
 
@@ -116,11 +139,13 @@ if __name__ == "__main__":
             "disable_existing_loggers": False,
             "formatters": {
                 "default": {
+                    "()": "rollout_server.server.LocalTimeFormatter",
                     "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
                     "datefmt": "%Y-%m-%d %H:%M:%S",
                 },
                 "access": {
-                    "format": '%(asctime)s - %(client_addr)s - "%(request_line)s" %(status_code)s',
+                    "()": "rollout_server.server.LocalTimeFormatter",
+                    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
                     "datefmt": "%Y-%m-%d %H:%M:%S",
                 },
             },
