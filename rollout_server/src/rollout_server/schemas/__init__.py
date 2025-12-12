@@ -54,6 +54,7 @@ from rollout_server.schemas.rollout import (
 
 # Completions schemas
 from rollout_server.schemas.completions import (
+    CompletionUsage,
     CompletionsChoice,
     CompletionsRequest,
     CompletionsResponse,
@@ -85,6 +86,7 @@ __all__ = [
     "RolloutResponse",
     "InitResponse",
     # Completions
+    "CompletionUsage",
     "CompletionsChoice",
     "CompletionsRequest",
     "CompletionsResponse",

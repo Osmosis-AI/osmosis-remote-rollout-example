@@ -18,6 +18,7 @@ from rollout_server.exceptions import (
     RolloutTimeoutError,
 )
 from rollout_server.schemas import (
+    CompletionUsage,
     CompletionsChoice,
     CompletionsRequest,
     CompletionsResponse,
@@ -43,6 +44,7 @@ __all__ = [
     "RateLimitExceededError",
     "RolloutTimeoutError",
     # Schemas
+    "CompletionUsage",
     "CompletionsChoice",
     "CompletionsRequest",
     "CompletionsResponse",

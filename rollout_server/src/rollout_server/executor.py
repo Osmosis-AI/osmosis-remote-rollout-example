@@ -396,8 +396,8 @@ async def _run_rollout_task(request: RolloutRequest, tools: List[ToolSchemaDict]
                     llm_latency_ms += (time.time() - llm_start) * 1000.0
                     num_llm_calls += 1
 
-                    prompt_len = len(completion.prompt_token_ids)
-                    resp_len = len(completion.token_ids)
+                    prompt_len = completion.usage.prompt_tokens if completion.usage else 0
+                    resp_len = completion.usage.completion_tokens if completion.usage else 0
                     prompt_tokens += prompt_len
                     response_tokens += resp_len
                     max_context_tokens = max(max_context_tokens, prompt_len)

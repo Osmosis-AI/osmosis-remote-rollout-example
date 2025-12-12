@@ -51,6 +51,14 @@ class CompletionsRequest(BaseModel):
     logprobs: bool = True
 
 
+class CompletionUsage(BaseModel):
+    """Token usage statistics for completions (OpenAI-compatible)."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
 class CompletionsResponse(BaseModel):
     """Extended OpenAI completions response with token tracking.
 
@@ -65,9 +73,10 @@ class CompletionsResponse(BaseModel):
     created: int  # Unix timestamp
     model: str = "default"
     choices: List[CompletionsChoice]
+    usage: Optional[CompletionUsage] = None  # Token usage statistics
 
-    # Extensions for training (trainer-specific)
-    token_ids: List[int]  # Response token IDs
-    logprobs: List[float]  # Log probabilities for response tokens
-    prompt_token_ids: List[int]  # Prompt token IDs (for verification)
+    # Optional extensions (for debugging/verification only, not needed by RolloutServer)
+    token_ids: Optional[List[int]] = None  # Response token IDs
+    logprobs: Optional[List[float]] = None  # Log probabilities for response tokens
+    prompt_token_ids: Optional[List[int]] = None  # Prompt token IDs (for verification)
 
