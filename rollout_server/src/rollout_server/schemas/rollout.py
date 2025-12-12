@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from rollout_server.schemas.tools import OpenAIFunctionToolSchema
+
 # Protocol transmission uses dicts for messages and completion params to remain
 # compatible with the OpenAI message format (including vendor-specific fields).
 MessageDict = Dict[str, Any]
@@ -218,5 +220,5 @@ class InitResponse(BaseModel):
     """
 
     rollout_id: str
-    tools: List[Dict[str, Any]] = Field(default_factory=list)
+    tools: List[OpenAIFunctionToolSchema] = Field(default_factory=list)
 

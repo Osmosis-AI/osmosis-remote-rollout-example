@@ -26,9 +26,18 @@ from rollout_server.schemas.messages import (
     Message,
     ToolCall,
     ToolCallFunction,
-    ToolFunction,
-    ToolDefinition,
-    ToolsResponse,
+)
+
+# Tool definition schemas (verl-compatible)
+from rollout_server.schemas.tools import (
+    OpenAIFunctionPropertySchema,
+    OpenAIFunctionParametersSchema,
+    OpenAIFunctionSchema,
+    OpenAIFunctionToolSchema,
+    OpenAIFunctionParsedSchema,
+    OpenAIFunctionCallSchema,
+    OpenAIFunctionToolCall,
+    ToolResponse,
 )
 
 # Sampling parameters
@@ -58,9 +67,15 @@ __all__ = [
     "Message",
     "ToolCall",
     "ToolCallFunction",
-    "ToolFunction",
-    "ToolDefinition",
-    "ToolsResponse",
+    # Tool definitions (verl-compatible)
+    "OpenAIFunctionPropertySchema",
+    "OpenAIFunctionParametersSchema",
+    "OpenAIFunctionSchema",
+    "OpenAIFunctionToolSchema",
+    "OpenAIFunctionParsedSchema",
+    "OpenAIFunctionCallSchema",
+    "OpenAIFunctionToolCall",
+    "ToolResponse",
     # Params
     "SamplingParams",
     # Rollout

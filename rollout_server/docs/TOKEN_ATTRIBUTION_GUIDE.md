@@ -73,3 +73,4 @@ Use `status="COMPLETED"` or `status="ERROR"`.
 - Confirm RolloutServer is calling `POST {server_url}/v1/chat/completions`.
 - Confirm RolloutServer posts `POST {server_url}/v1/rollout/completed`.
 - Inspect the final transcript for correct tool message structure.
+

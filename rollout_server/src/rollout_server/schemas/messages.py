@@ -12,54 +12,6 @@ from rollout_server.schemas.constants import VALID_MESSAGE_ROLES
 
 
 # =============================================================================
-# Tool Definition Schemas (InitResponse.tools)
-# =============================================================================
-
-
-class ToolFunction(BaseModel):
-    """Function definition within a tool, following OpenAI tool format."""
-
-    name: str
-    description: Optional[str] = None
-    parameters: Optional[Dict[str, Any]] = None
-
-
-class ToolDefinition(BaseModel):
-    """Tool definition following OpenAI tools format.
-
-    Example:
-        {
-            "type": "function",
-            "function": {
-                "name": "add",
-                "description": "Add two numbers",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "a": {"type": "number"},
-                        "b": {"type": "number"}
-                    },
-                    "required": ["a", "b"]
-                }
-            }
-        }
-    """
-
-    type: str = "function"
-    function: ToolFunction
-
-
-class ToolsResponse(BaseModel):
-    """Response wrapper containing tool definitions.
-
-    Tool definitions are provided to the training side as part of the
-    InitResponse for a rollout.
-    """
-
-    tools: List[ToolDefinition] = Field(default_factory=list)
-
-
-# =============================================================================
 # Message and Chat Schemas
 # =============================================================================
 
