@@ -15,7 +15,7 @@ This document describes how to deploy the RolloutServer.
 
 ```bash
 cd rollout_server
-uv run python -m rollout_server.server
+./scripts/start_server.sh
 ```
 
 ## Callback endpoints
