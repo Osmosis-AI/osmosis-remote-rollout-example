@@ -8,11 +8,14 @@ This server implements an async-init protocol:
 """
 
 import asyncio
+import json
 import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import Response
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from rollout_server.config import settings
 from rollout_server.executor import app_state, start_rollout
@@ -58,6 +61,73 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Request/Response Logging Middleware
+# =============================================================================
+
+
+class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
+    """Middleware to log all incoming requests and outgoing responses."""
+
+    # Paths where we skip response logging (only log request payload)
+    SKIP_RESPONSE_LOG_PATHS = {"/tools", "/init"}
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip logging entirely for health checks to reduce noise
+        if request.url.path == "/health":
+            return await call_next(request)
+
+        # Read and log request body
+        request_body = await request.body()
+        try:
+            request_json = json.loads(request_body) if request_body else {}
+            request_body_str = json.dumps(request_json, indent=2, ensure_ascii=False)
+        except json.JSONDecodeError:
+            request_body_str = request_body.decode("utf-8", errors="replace")
+
+        logger.info(
+            f">>> INCOMING REQUEST: {request.method} {request.url.path}\n"
+            f"Body:\n{request_body_str}"
+        )
+
+        # Reconstruct request with body for downstream handlers
+        async def receive():
+            return {"type": "http.request", "body": request_body}
+
+        request._receive = receive
+
+        # Call the next handler and capture response
+        response = await call_next(request)
+
+        # For certain paths, skip response logging
+        if request.url.path in self.SKIP_RESPONSE_LOG_PATHS:
+            return response
+
+        # Read response body
+        response_body = b""
+        async for chunk in response.body_iterator:
+            response_body += chunk
+
+        try:
+            response_json = json.loads(response_body) if response_body else {}
+            response_body_str = json.dumps(response_json, indent=2, ensure_ascii=False)
+        except json.JSONDecodeError:
+            response_body_str = response_body.decode("utf-8", errors="replace")
+
+        logger.info(
+            f"<<< OUTGOING RESPONSE: {request.method} {request.url.path} - Status: {response.status_code}\n"
+            f"Body:\n{response_body_str}"
+        )
+
+        # Return a new response with the same body
+        return Response(
+            content=response_body,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type=response.media_type,
+        )
+
+
+# =============================================================================
 # Lifespan Management
 # =============================================================================
 
@@ -89,6 +159,9 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan
 )
+
+# Add request/response logging middleware
+app.add_middleware(RequestResponseLoggingMiddleware)
 
 
 # =============================================================================

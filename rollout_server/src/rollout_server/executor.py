@@ -11,6 +11,7 @@ Rollouts are executed in background tasks keyed by rollout_id (idempotency key).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -245,19 +246,42 @@ async def _post_rollout_completed(
     response: RolloutResponse,
 ) -> None:
     client = await app_state.get_http_client()
-    resp = await client.post(
-        f"{server_url}/v1/rollout/completed",
-        json=response.model_dump(mode="json", exclude_none=True),
-        headers=_auth_headers(api_key),
+    payload = response.model_dump(mode="json", exclude_none=True)
+    
+    # Log outgoing rollout completed callback
+    logger.info(
+        f"[{response.rollout_id}] Sending /v1/rollout/completed to {server_url}:\n"
+        f"{json.dumps(payload, indent=2, ensure_ascii=False)}"
     )
+    
     try:
+        resp = await client.post(
+            f"{server_url}/v1/rollout/completed",
+            json=payload,
+            headers=_auth_headers(api_key),
+        )
         resp.raise_for_status()
-    except httpx.HTTPStatusError:
+        # Log successful callback response
+        logger.info(
+            f"[{response.rollout_id}] /v1/rollout/completed response: status={resp.status_code}"
+        )
+    except httpx.ConnectError as e:
+        # DNS resolution failure or connection refused - log as warning without stack trace
+        logger.warning(
+            f"[{response.rollout_id}] /v1/rollout/completed connection failed: "
+            f"server_url={server_url}, error={e}"
+        )
+        raise
+    except httpx.TimeoutException as e:
+        logger.warning(
+            f"[{response.rollout_id}] /v1/rollout/completed timeout: "
+            f"server_url={server_url}, error={e}"
+        )
+        raise
+    except httpx.HTTPStatusError as e:
         logger.error(
-            "[%s] /v1/rollout/completed callback failed: status=%s body=%s",
-            response.rollout_id,
-            resp.status_code,
-            resp.text,
+            f"[{response.rollout_id}] /v1/rollout/completed callback failed: "
+            f"status={e.response.status_code}, body={e.response.text}"
         )
         raise
 
@@ -292,14 +316,42 @@ async def _call_chat_completions(
         logprobs=bool(completion_params.get("logprobs", True)),
     )
     payload = request.model_dump(mode="json", exclude_none=True)
-
-    resp = await client.post(
-        f"{server_url}/v1/chat/completions",
-        json=payload,
-        headers=_auth_headers(api_key),
+    
+    # Log outgoing chat completions request
+    logger.info(
+        f"[{rollout_id}] Sending /v1/chat/completions request to {server_url}:\n"
+        f"{json.dumps(payload, indent=2, ensure_ascii=False)}"
     )
-    resp.raise_for_status()
-    return CompletionsResponse.model_validate(resp.json())
+
+    try:
+        resp = await client.post(
+            f"{server_url}/v1/chat/completions",
+            json=payload,
+            headers=_auth_headers(api_key),
+        )
+        resp.raise_for_status()
+    except httpx.ConnectError as e:
+        # DNS resolution failure or connection refused
+        logger.warning(
+            f"[{rollout_id}] /v1/chat/completions connection failed: "
+            f"server_url={server_url}, error={e}"
+        )
+        raise
+    except httpx.TimeoutException as e:
+        logger.warning(
+            f"[{rollout_id}] /v1/chat/completions timeout: "
+            f"server_url={server_url}, error={e}"
+        )
+        raise
+    
+    response_json = resp.json()
+    # Log received chat completions response
+    logger.info(
+        f"[{rollout_id}] Received /v1/chat/completions response:\n"
+        f"{json.dumps(response_json, indent=2, ensure_ascii=False)}"
+    )
+    
+    return CompletionsResponse.model_validate(response_json)
 
 
 async def _run_rollout_task(request: RolloutRequest, tools: List[ToolSchemaDict]) -> None:
@@ -387,11 +439,23 @@ async def _run_rollout_task(request: RolloutRequest, tools: List[ToolSchemaDict]
             f"[{rollout_id}] Trainer HTTP error: {e.response.status_code} - {e.response.text}"
         )
 
+    except httpx.ConnectError as e:
+        status = RolloutStatus.ERROR
+        error_message = f"Connection failed: {e}"
+        extra_fields = {"error_category": "connection_error"}
+        # Already logged in _call_chat_completions, no additional logging needed
+
+    except httpx.TimeoutException as e:
+        status = RolloutStatus.ERROR
+        error_message = f"Request timeout: {e}"
+        extra_fields = {"error_category": "timeout"}
+        # Already logged in _call_chat_completions, no additional logging needed
+
     except httpx.RequestError as e:
         status = RolloutStatus.ERROR
-        error_message = "Network error communicating with trainer"
+        error_message = f"Network error: {e}"
         extra_fields = {"error_category": "network_error"}
-        logger.error(f"[{rollout_id}] Trainer network error: {e}")
+        logger.warning(f"[{rollout_id}] Trainer network error: {e}")
 
     except Exception:
         status = RolloutStatus.ERROR
@@ -427,5 +491,8 @@ async def _run_rollout_task(request: RolloutRequest, tools: List[ToolSchemaDict]
             response=rollout_response,
         )
         logger.info(f"[{rollout_id}] Posted rollout completion: status={status.value}")
+    except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
+        # Already logged in _post_rollout_completed, no need for stack trace
+        pass
     except Exception:
         logger.exception(f"[{rollout_id}] Failed to post rollout completion callback")
