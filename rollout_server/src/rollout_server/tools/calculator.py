@@ -90,7 +90,7 @@ async def multiply(a: float, b: float) -> float:
     """
     delay = random.uniform(TOOL_DELAY_MIN_SECONDS, TOOL_DELAY_MAX_SECONDS)
     await asyncio.sleep(delay)
-    result = a * b
+    result = round(a * b, 4)
     logger.debug(f"multiply({a}, {b}) = {result} (delay: {delay:.2f}s)")
     return result
 
