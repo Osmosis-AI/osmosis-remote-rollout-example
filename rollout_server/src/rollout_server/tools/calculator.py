@@ -79,18 +79,16 @@ async def subtract(a: float, b: float) -> float:
 
 
 async def multiply(a: float, b: float) -> float:
-    """Multiply two numbers with random delay.
+    '''
+    Calculate the product of two numbers
 
     Args:
-        a: First number
-        b: Second number
-
-    Returns:
-        Product of a and b
-    """
+        a: the first value to be multiplied
+        b: the second value to be multiplied
+    '''
     delay = random.uniform(TOOL_DELAY_MIN_SECONDS, TOOL_DELAY_MAX_SECONDS)
     await asyncio.sleep(delay)
-    result = a * b
+    result = round(a * b, 4)
     logger.debug(f"multiply({a}, {b}) = {result} (delay: {delay:.2f}s)")
     return result
 

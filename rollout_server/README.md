@@ -13,7 +13,7 @@ Remote rollout separates trajectory generation (agent loop) from training infras
 
 ### 1) Start a rollout
 
-**Endpoint**: `POST /init`
+**Endpoint**: `POST /v1/rollout/init`
 
 Training sends an init request and receives `202 Accepted` with the tools available for this rollout.
 
@@ -31,7 +31,7 @@ RolloutServer posts the final result once:
 
 ### Authentication
 
-If `api_key` is provided in the `/init` request, RolloutServer includes it as a Bearer token in both callback requests:
+If `api_key` is provided in the `/v1/rollout/init` request, RolloutServer includes it as a Bearer token in both callback requests:
 
 ```
 Authorization: Bearer <api_key>
@@ -77,7 +77,7 @@ uv run pytest
 
 - **Append-only messages**: never truncate, summarize, reorder, or rewrite earlier messages.
 - **Tool message format**: tool responses must include `tool_call_id` matching the tool call `id`.
-- **Idempotency**: `rollout_id` is an idempotency key for `/init`.
+- **Idempotency**: `rollout_id` is an idempotency key for `/v1/rollout/init`.
 
 ## Documentation
 

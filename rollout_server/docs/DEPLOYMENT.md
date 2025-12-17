@@ -24,7 +24,7 @@ RolloutServer must be able to reach the training side at:
 - `{server_url}/v1/chat/completions`
 - `{server_url}/v1/rollout/completed`
 
-If `api_key` is provided in the `/init` request, RolloutServer sends:
+If `api_key` is provided in the `/v1/rollout/init` request, RolloutServer sends:
 
 ```
 Authorization: Bearer <api_key>

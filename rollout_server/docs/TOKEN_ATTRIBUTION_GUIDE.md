@@ -49,7 +49,7 @@ Example:
 
 ### 3) Idempotency
 
-`rollout_id` is an idempotency key for `POST /init`. Repeated `/init` with the same
+`rollout_id` is an idempotency key for `POST /v1/rollout/init`. Repeated `/v1/rollout/init` with the same
 `rollout_id` must not start duplicate rollouts.
 
 ### 4) Completion callback
@@ -69,7 +69,7 @@ Use `status="COMPLETED"` or `status="ERROR"`.
 
 ## Debugging checklist
 
-- Confirm RolloutServer returns `202 Accepted` on `POST /init`.
+- Confirm RolloutServer returns `202 Accepted` on `POST /v1/rollout/init`.
 - Confirm RolloutServer is calling `POST {server_url}/v1/chat/completions`.
 - Confirm RolloutServer posts `POST {server_url}/v1/rollout/completed`.
 - Inspect the final transcript for correct tool message structure.

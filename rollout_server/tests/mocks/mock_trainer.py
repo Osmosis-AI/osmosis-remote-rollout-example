@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI
 import uvicorn
 
-from rollout_server.schemas import CompletionsRequest, CompletionsResponse, RolloutResponse
+from rollout_server.schemas import CompletionUsage, CompletionsRequest, CompletionsResponse, RolloutResponse
 
 app = FastAPI(title="Mock Trainer Server")
 
@@ -73,6 +73,7 @@ async def completions(request: CompletionsRequest) -> CompletionsResponse:
 
     response_text = assistant_message.get("content") or ""
     response_token_ids = _fake_token_ids(str(response_text))
+    prompt_token_ids = _fake_prompt_token_ids(messages)
 
     return CompletionsResponse(
         id=request.rollout_id,
@@ -85,9 +86,14 @@ async def completions(request: CompletionsRequest) -> CompletionsResponse:
                 "finish_reason": "stop",
             }
         ],
+        usage=CompletionUsage(
+            prompt_tokens=len(prompt_token_ids),
+            completion_tokens=len(response_token_ids),
+            total_tokens=len(prompt_token_ids) + len(response_token_ids),
+        ),
         token_ids=response_token_ids,
         logprobs=[0.0] * len(response_token_ids),
-        prompt_token_ids=_fake_prompt_token_ids(messages),
+        prompt_token_ids=prompt_token_ids,
     )
 
 

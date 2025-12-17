@@ -35,7 +35,7 @@ def test_init_endpoint_returns_202_and_tools(mock_trainer_with_completion):
     }
 
     with TestClient(rollout_app) as rollout_client:
-        resp = rollout_client.post("/init", json=payload)
+        resp = rollout_client.post("/v1/rollout/init", json=payload)
         assert resp.status_code == 202, resp.text
 
         body = resp.json()
@@ -71,5 +71,5 @@ def test_health_endpoint():
 @pytest.mark.integration
 def test_init_with_invalid_request_returns_422():
     with TestClient(rollout_app) as client:
-        resp = client.post("/init", json={"invalid": "data"})
+        resp = client.post("/v1/rollout/init", json={"invalid": "data"})
         assert resp.status_code == 422

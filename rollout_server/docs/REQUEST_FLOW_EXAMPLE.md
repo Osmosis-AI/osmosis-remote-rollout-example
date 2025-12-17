@@ -1,15 +1,15 @@
-# Request Flow Example: `/init` ↔ callbacks
+# Request Flow Example: `/v1/rollout/init` ↔ callbacks
 
 This document walks through the end-to-end flow used by the RolloutServer async-init protocol.
 
 ## Scenario
 
 - User asks: _"Please calculate 5 plus 3, and then multiply the result by 2."_
-- Training side calls `POST /init` on RolloutServer.
+- Training side calls `POST /v1/rollout/init` on RolloutServer.
 - RolloutServer drives the agent loop by calling the trainer's `POST /v1/chat/completions` endpoint.
 - When finished, RolloutServer posts a single completion callback to `POST /v1/rollout/completed`.
 
-## 1) Training → RolloutServer: `POST /init`
+## 1) Training → RolloutServer: `POST /v1/rollout/init`
 
 ```json
 {
@@ -83,7 +83,7 @@ RolloutServer calls the trainer for the next assistant message:
 }
 ```
 
-If `api_key` was provided in the `/init` request, RolloutServer includes:
+If `api_key` was provided in the `/v1/rollout/init` request, RolloutServer includes:
 
 ```
 Authorization: Bearer <api_key>
@@ -203,5 +203,5 @@ If the rollout fails, RolloutServer posts a callback with `status="ERROR"` and a
 
 - **Append-only messages**: Do not truncate, summarize, reorder, or rewrite earlier messages.
 - **Tool result format**: Tool responses should include `tool_call_id` matching the corresponding tool call.
-- **Idempotency**: `rollout_id` is an idempotency key; repeated `/init` must not start duplicate rollouts.
+- **Idempotency**: `rollout_id` is an idempotency key; repeated `/v1/rollout/init` must not start duplicate rollouts.
 - **Authentication**: If `api_key` is provided, include it as a Bearer token in both callback endpoints.

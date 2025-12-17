@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from rollout_server.schemas import (
+    CompletionUsage,
     CompletionsRequest,
     CompletionsResponse,
     RolloutResponse,
@@ -101,6 +102,11 @@ def create_mock_trainer_app(
                     "finish_reason": "stop",
                 }
             ],
+            usage=CompletionUsage(
+                prompt_tokens=len(prompt_token_ids),
+                completion_tokens=len(response_token_ids),
+                total_tokens=len(prompt_token_ids) + len(response_token_ids),
+            ),
             token_ids=response_token_ids,
             logprobs=[0.0] * len(response_token_ids),
             prompt_token_ids=prompt_token_ids,

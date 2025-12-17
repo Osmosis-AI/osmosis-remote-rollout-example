@@ -6,7 +6,7 @@ This RolloutServer drives an agent loop externally using an async-init protocol.
 
 High-level flow:
 
-1. Training calls `POST /init` on RolloutServer (202 Accepted + tools).
+1. Training calls `POST /v1/rollout/init` on RolloutServer (202 Accepted + tools).
 2. RolloutServer calls back to the training side for LLM generations:
    - `POST {server_url}/v1/chat/completions`
 3. RolloutServer executes tools, appends tool messages, and repeats until completion.
@@ -19,7 +19,7 @@ High-level flow:
 
 - Exposes:
   - `GET /health`
-  - `POST /init` (returns 202)
+  - `POST /v1/rollout/init` (returns 202)
 - Starts rollouts asynchronously in background tasks.
 
 ### Executor (`src/rollout_server/executor.py`)
@@ -48,7 +48,7 @@ Tool calls are executed asynchronously and tool results are appended as messages
 ### Schemas (`src/rollout_server/schemas/`)
 
 Pydantic models defining:
-- `/init` request/response payloads
+- `/v1/rollout/init` request/response payloads
 - `/v1/chat/completions` request/response payloads
 - `/v1/rollout/completed` callback payload
 
