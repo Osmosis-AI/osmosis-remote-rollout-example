@@ -1,7 +1,7 @@
 """Integration tests for async-init completion callbacks.
 
 These tests validate that RolloutServer:
-- Returns 202 Accepted on /init with tools.
+- Returns 202 Accepted on /v1/rollout/init with tools.
 - Drives the conversation via /v1/chat/completions callbacks.
 - Posts exactly one /v1/rollout/completed callback per rollout_id.
 """
@@ -30,7 +30,7 @@ def test_single_turn_without_tools_completes(mock_trainer_with_completion):
     }
 
     with TestClient(rollout_app) as rollout_client:
-        resp = rollout_client.post("/init", json=payload)
+        resp = rollout_client.post("/v1/rollout/init", json=payload)
         assert resp.status_code == 202
 
         ok = tracker["event"].wait(timeout=5.0)
@@ -61,8 +61,8 @@ def test_init_is_idempotent_by_rollout_id(mock_trainer_with_completion):
     }
 
     with TestClient(rollout_app) as rollout_client:
-        resp1 = rollout_client.post("/init", json=payload)
-        resp2 = rollout_client.post("/init", json=payload)
+        resp1 = rollout_client.post("/v1/rollout/init", json=payload)
+        resp2 = rollout_client.post("/v1/rollout/init", json=payload)
 
         assert resp1.status_code == 202
         assert resp2.status_code == 202

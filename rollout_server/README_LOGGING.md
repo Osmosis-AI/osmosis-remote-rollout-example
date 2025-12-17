@@ -77,7 +77,7 @@ tail -f logs/rollout_server_*.log
 
 # Search for specific content
 grep "ERROR" logs/rollout_server_*.log
-grep "POST /init" logs/rollout_server_*.log
+grep "POST /v1/rollout/init" logs/rollout_server_*.log
 ```
 
 ## Log Examples
@@ -96,7 +96,7 @@ INFO:     Uvicorn running on http://0.0.0.0:9000 (Press CTRL+C to quit)
 2025-12-10 18:09:35 - 127.0.0.1:44836 - "GET /health HTTP/1.1" 200
 2025-12-10 18:09:40 - 107.192.105.96:54321 - "GET /docs HTTP/1.1" 200
 2025-12-10 18:09:45 - 107.192.105.96:54321 - "GET /openapi.json HTTP/1.1" 200
-2025-12-10 18:10:00 - 107.192.105.96:54322 - "POST /init HTTP/1.1" 202
+2025-12-10 18:10:00 - 107.192.105.96:54322 - "POST /v1/rollout/init HTTP/1.1" 202
 ```
 
 ## Log File Management
@@ -206,8 +206,8 @@ grep -c "HTTP/1.1" logs/rollout_server_*.log
 # Count by status code
 grep "HTTP/1.1" logs/rollout_server_*.log | awk '{print $NF}' | sort | uniq -c
 
-# Count /init endpoint calls
-grep "POST /init" logs/rollout_server_*.log | wc -l
+# Count /v1/rollout/init endpoint calls
+grep "POST /v1/rollout/init" logs/rollout_server_*.log | wc -l
 ```
 
 ### Find Errors

@@ -3,7 +3,7 @@
 This example:
   1) Starts the mock trainer server
   2) Starts the RolloutServer
-  3) Sends /init requests
+  3) Sends /v1/rollout/init requests
   4) Polls the mock trainer for the completion callback
 
 For automated coverage, use the test suite in tests/.
@@ -77,13 +77,13 @@ async def run_rollout(init_request: dict) -> dict:
     rollout_id = init_request["rollout_id"]
     async with httpx.AsyncClient() as client:
         init_resp = await client.post(
-            f"http://localhost:{ROLLOUT_SERVER_PORT}/init",
+            f"http://localhost:{ROLLOUT_SERVER_PORT}/v1/rollout/init",
             json=init_request,
             timeout=10.0,
         )
         init_resp.raise_for_status()
         if init_resp.status_code != 202:
-            raise RuntimeError(f"Unexpected /init status: {init_resp.status_code}")
+            raise RuntimeError(f"Unexpected /v1/rollout/init status: {init_resp.status_code}")
 
         # Poll mock trainer for completion callback.
         deadline = time.time() + 10.0

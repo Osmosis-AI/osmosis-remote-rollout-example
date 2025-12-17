@@ -2,7 +2,7 @@
 
 This package provides a FastAPI server implementing an async-init remote rollout
 protocol:
-- Training calls POST /init and receives tools (202 Accepted).
+- Training calls POST /v1/rollout/init and receives tools (202 Accepted).
 - RolloutServer drives the agent loop by calling back to
   {server_url}/v1/chat/completions.
 - RolloutServer posts the final result to {server_url}/v1/rollout/completed.

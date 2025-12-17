@@ -102,7 +102,7 @@ async def test_e2e_init_returns_tools():
     ])
 
     async with httpx.AsyncClient() as client:
-        r = await client.post(f"{ROLLOUT_SERVER_URL}/init", json=payload, timeout=10.0)
+        r = await client.post(f"{ROLLOUT_SERVER_URL}/v1/rollout/init", json=payload, timeout=10.0)
         assert r.status_code == 202
         data = r.json()
         assert data["rollout_id"] == payload["rollout_id"]
@@ -118,7 +118,7 @@ async def test_e2e_rollout_without_tools():
     ])
 
     async with httpx.AsyncClient() as client:
-        r = await client.post(f"{ROLLOUT_SERVER_URL}/init", json=payload, timeout=10.0)
+        r = await client.post(f"{ROLLOUT_SERVER_URL}/v1/rollout/init", json=payload, timeout=10.0)
         assert r.status_code == 202
 
     completed = await wait_for_completion(payload["rollout_id"], timeout_s=10.0)
@@ -135,7 +135,7 @@ async def test_e2e_rollout_with_tools():
     ])
 
     async with httpx.AsyncClient() as client:
-        r = await client.post(f"{ROLLOUT_SERVER_URL}/init", json=payload, timeout=10.0)
+        r = await client.post(f"{ROLLOUT_SERVER_URL}/v1/rollout/init", json=payload, timeout=10.0)
         assert r.status_code == 202
 
     completed = await wait_for_completion(payload["rollout_id"], timeout_s=10.0)
@@ -160,7 +160,7 @@ async def test_e2e_max_turns_respected():
     )
 
     async with httpx.AsyncClient() as client:
-        r = await client.post(f"{ROLLOUT_SERVER_URL}/init", json=payload, timeout=10.0)
+        r = await client.post(f"{ROLLOUT_SERVER_URL}/v1/rollout/init", json=payload, timeout=10.0)
         assert r.status_code == 202
 
     completed = await wait_for_completion(payload["rollout_id"], timeout_s=10.0)

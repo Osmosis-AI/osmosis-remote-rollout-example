@@ -29,7 +29,7 @@ PYTHONPATH=src python -m pytest
 Integration tests run RolloutServer in-process and intercept its trainer callbacks using an in-process mock trainer.
 
 What gets validated:
-- `POST /init` returns `202 Accepted` and tool definitions.
+- `POST /v1/rollout/init` returns `202 Accepted` and tool definitions.
 - RolloutServer calls `POST /v1/chat/completions` to drive the loop.
 - RolloutServer posts exactly one `POST /v1/rollout/completed` callback.
 
@@ -56,7 +56,7 @@ Stop services:
 ### Manual API testing
 
 1) Open the FastAPI docs UI at `http://localhost:9000/docs`.
-2) Use `POST /init` with a payload like:
+2) Use `POST /v1/rollout/init` with a payload like:
 
 ```json
 {

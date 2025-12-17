@@ -1,6 +1,6 @@
 """Calculator example demonstrating multi-turn conversations with tools.
 
-This example starts a rollout via POST /init and then polls the mock trainer for
+This example starts a rollout via POST /v1/rollout/init and then polls the mock trainer for
 the completion callback.
 
 Prerequisites:
@@ -61,7 +61,7 @@ async def calculator_example() -> None:
 
     async with httpx.AsyncClient() as client:
         init_resp = await client.post(
-            f"{ROLLOUT_SERVER_URL}/init",
+            f"{ROLLOUT_SERVER_URL}/v1/rollout/init",
             json=init_request,
             timeout=10.0,
         )

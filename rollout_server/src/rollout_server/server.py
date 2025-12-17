@@ -1,7 +1,7 @@
 """FastAPI RolloutServer implementing the Remote Rollout Protocol.
 
 This server implements an async-init protocol:
-- Training calls POST /init to start a rollout (returns 202 with tools).
+- Training calls POST /v1/rollout/init to start a rollout (returns 202 with tools).
 - RolloutServer drives the agent loop by calling back to
   {server_url}/v1/chat/completions for LLM generations.
 - RolloutServer posts the final result to {server_url}/v1/rollout/completed.
@@ -69,7 +69,7 @@ class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
     """Middleware to log all incoming requests and outgoing responses."""
 
     # Paths where we skip response logging (only log request payload)
-    SKIP_RESPONSE_LOG_PATHS = {"/tools", "/init"}
+    SKIP_RESPONSE_LOG_PATHS = {"/tools", "/v1/rollout/init"}
 
     async def dispatch(self, request: Request, call_next):
         # Skip logging entirely for health checks to reduce noise
@@ -175,7 +175,7 @@ async def health_check():
     return {"status": "healthy", "service": "rollout-server"}
 
 
-@app.post("/init", response_model=InitResponse, status_code=202)
+@app.post("/v1/rollout/init", response_model=InitResponse, status_code=202)
 async def init_rollout(request: RolloutRequest) -> InitResponse:
     """Start a rollout (async-init protocol).
 

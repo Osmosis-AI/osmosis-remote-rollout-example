@@ -3,7 +3,7 @@
 These schemas define the contract between the training-side agent loop and
 RolloutServer. The protocol uses an async-init flow:
 
-- Training -> RolloutServer: POST /init (returns 202 with tools)
+- Training -> RolloutServer: POST /v1/rollout/init (returns 202 with tools)
 - RolloutServer -> Training: POST {server_url}/v1/chat/completions (LLM callback)
 - RolloutServer -> Training: POST {server_url}/v1/rollout/completed (completion callback)
 """
@@ -71,7 +71,7 @@ class RolloutMetrics(BaseModel):
 
 
 class RolloutRequest(BaseModel):
-    """Request sent to POST /init to start a rollout (async-init protocol).
+    """Request sent to POST /v1/rollout/init to start a rollout (async-init protocol).
 
     The rollout continues asynchronously:
     - RolloutServer calls back to server_url/v1/chat/completions for LLM generation.
@@ -214,7 +214,7 @@ class RolloutResponse(BaseModel):
 
 
 class InitResponse(BaseModel):
-    """Response body for POST /init (202 Accepted).
+    """Response body for POST /v1/rollout/init (202 Accepted).
 
     Provides the tool definitions available for this rollout.
     """

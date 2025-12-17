@@ -127,16 +127,16 @@ async def main() -> None:
             "max_tokens_total": 8192,
         }
 
-        log_header("Step 1: POST /init")
+        log_header("Step 1: POST /v1/rollout/init")
         log_json("init_request", init_payload)
 
         init_resp = await client.post(
-            f"{ROLLOUT_SERVER_URL}/init",
+            f"{ROLLOUT_SERVER_URL}/v1/rollout/init",
             json=init_payload,
             timeout=10.0,
         )
         if init_resp.status_code != 202:
-            log_error(f"/init returned {init_resp.status_code}: {init_resp.text}")
+            log_error(f"/v1/rollout/init returned {init_resp.status_code}: {init_resp.text}")
             return
 
         init_data = init_resp.json()

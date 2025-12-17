@@ -1,7 +1,7 @@
 """Core rollout execution logic for the Remote Rollout Server.
 
 Protocol flow (async-init):
-- Training -> RolloutServer: POST /init (returns 202 with tools).
+- Training -> RolloutServer: POST /v1/rollout/init (returns 202 with tools).
 - RolloutServer -> Training: POST {server_url}/v1/chat/completions (LLM generations).
 - RolloutServer -> Training: POST {server_url}/v1/rollout/completed (final result).
 
@@ -63,7 +63,7 @@ class AppState:
 
         Notes:
         - We keep completed rollout_id records for a short TTL to preserve idempotency
-          across transient client retries (e.g., /init response lost).
+          across transient client retries (e.g., /v1/rollout/init response lost).
         - We drop references to finished asyncio.Tasks to avoid retaining large local
           objects (messages, responses) after completion.
         """
