@@ -13,13 +13,9 @@ Remote rollout separates trajectory generation from training infrastructure:
 
 ```
 rollout_server/
-├── rollout_server/
-│   ├── __init__.py
-│   └── server.py      # Agent loop + calculator tools
-├── tests/
-├── scripts/
-│   └── start_server.sh
+├── server.py         # Agent loop + calculator tools (~250 lines)
 ├── pyproject.toml
+├── uv.lock
 └── README.md
 ```
 
