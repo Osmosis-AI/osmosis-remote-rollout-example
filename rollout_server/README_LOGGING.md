@@ -84,9 +84,8 @@ grep "POST /v1/rollout/init" logs/rollout_server_*.log
 
 ### Startup Logs
 ```
-2025-12-10 18:09:30 - rollout_server.server - INFO - Starting RolloutServer...
-2025-12-10 18:09:30 - rollout_server.executor - INFO - Initializing app state...
-2025-12-10 18:09:30 - rollout_server.server - INFO - RolloutServer startup complete
+{"level": "INFO", "logger": "osmosis_ai.rollout.server.app", "event": "server_starting", "agent_loop": "calculator", ...}
+{"level": "INFO", "logger": "osmosis_ai.rollout.server.app", "event": "rollout_started", "rollout_id": "...", ...}
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:9000 (Press CTRL+C to quit)
 ```
@@ -156,24 +155,17 @@ Example logrotate configuration (`/etc/logrotate.d/rollout_server`):
 
 ### Modify Log Format
 
-Edit the `log_config` in `src/rollout_server/server.py`:
+Logging is provided by the Osmosis rollout SDK. Configure it via environment variables:
 
-```python
-"formatters": {
-    "default": {
-        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        "datefmt": "%Y-%m-%d %H:%M:%S",  # Modify this to change time format
-    },
-}
+```bash
+# Options: json | console | plain
+export OSMOSIS_ROLLOUT_LOG_FORMAT=json
 ```
 
 ### Modify Log Level
 
-```python
-uvicorn.run(
-    ...
-    log_level="debug",  # Change to "debug" for more detailed logs
-)
+```bash
+export OSMOSIS_ROLLOUT_LOG_LEVEL=DEBUG
 ```
 
 ## Integration with Test Environment

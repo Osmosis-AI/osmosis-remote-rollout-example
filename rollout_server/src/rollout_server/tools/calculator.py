@@ -1,30 +1,25 @@
 """Simple async calculator tools with random delays.
 
-These tools demonstrate async tool execution without requiring external services
-like MCP servers. Each operation includes a random delay to simulate real-world
-async tool calls.
-
-Usage:
-    tool_call = {
-        "id": "call_123",
-        "type": "function",
-        "function": {
-            "name": "add",
-            "arguments": {"a": 15, "b": 23}
-        }
-    }
-
-    result = await execute_calculator_call(tool_call)
-    # Returns: {"role": "tool", "content": "38", "tool_call_id": "call_123"}
+This module is intentionally small and focuses only on "tool business logic".
+All tool parsing/serialization utilities come from the Osmosis rollout SDK:
+`osmosis_ai.rollout.tools`.
 """
 
 import asyncio
-import json
 import logging
 import random
-from typing import Any, Callable, Coroutine, Dict, List, Union
+from typing import Any, Callable, Coroutine, Dict, List
 
 logger = logging.getLogger(__name__)
+
+from osmosis_ai.rollout.core.exceptions import ToolArgumentError
+from osmosis_ai.rollout.tools import (
+    create_tool_error_result,
+    create_tool_result,
+    execute_tool_calls,
+    get_tool_call_info,
+    serialize_tool_result,
+)
 
 
 # =============================================================================
@@ -79,13 +74,7 @@ async def subtract(a: float, b: float) -> float:
 
 
 async def multiply(a: float, b: float) -> float:
-    '''
-    Calculate the product of two numbers
-
-    Args:
-        a: the first value to be multiplied
-        b: the second value to be multiplied
-    '''
+    """Multiply two numbers with random delay."""
     delay = random.uniform(TOOL_DELAY_MIN_SECONDS, TOOL_DELAY_MAX_SECONDS)
     await asyncio.sleep(delay)
     result = round(a * b, 4)
@@ -132,43 +121,6 @@ CALCULATOR_TOOLS: Dict[str, ToolFunction] = {
 # =============================================================================
 
 
-def _serialize_result(result: Any) -> str:
-    """Serialize tool result to string for consistent output.
-
-    Args:
-        result: The result to serialize
-
-    Returns:
-        JSON-serialized string representation
-    """
-    if isinstance(result, (int, float)):
-        # For numeric results, use simple string representation
-        # This preserves precision better for simple numbers
-        return str(result)
-    elif isinstance(result, str):
-        return result
-    else:
-        # For complex objects, use JSON serialization
-        return json.dumps(result)
-
-
-def _create_tool_result(tool_call_id: str, content: str) -> Dict[str, str]:
-    """Create a standardized tool result dict.
-
-    Args:
-        tool_call_id: The ID of the tool call
-        content: The content of the result
-
-    Returns:
-        Tool result dict with role, content, and tool_call_id
-    """
-    return {
-        "role": "tool",
-        "content": content,
-        "tool_call_id": tool_call_id
-    }
-
-
 async def execute_calculator_call(tool_call: Dict[str, Any]) -> Dict[str, str]:
     """Execute a calculator tool call.
 
@@ -191,57 +143,36 @@ async def execute_calculator_call(tool_call: Dict[str, Any]) -> Dict[str, str]:
                 "tool_call_id": "call_123"
             }
     """
-    tool_call_id: str = tool_call.get("id", "unknown")
-    function_data = tool_call.get("function", {})
-    function_name: str = function_data.get("name", "")
-    arguments: Union[str, Dict[str, Any]] = function_data.get("arguments", {})
-
-    # Parse arguments if they're a JSON string
-    if isinstance(arguments, str):
-        try:
-            arguments = json.loads(arguments)
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse arguments as JSON: {arguments}")
-            return _create_tool_result(
-                tool_call_id,
-                f"Error: Invalid JSON arguments: {str(e)}"
-            )
-
-    # Check if function exists
-    if function_name not in CALCULATOR_TOOLS:
-        logger.warning(f"Unknown calculator function: {function_name}")
-        return _create_tool_result(
-            tool_call_id,
-            f"Error: Unknown function '{function_name}'. Available: {list(CALCULATOR_TOOLS.keys())}"
-        )
-
-    # Execute tool
     try:
-        logger.info(f"Executing {function_name} with arguments {arguments}")
-        result = await CALCULATOR_TOOLS[function_name](**arguments)
+        tool_call_id, function_name, arguments = get_tool_call_info(tool_call)
+    except ToolArgumentError as e:
+        tool_call_id = e.tool_call_id or tool_call.get("id", "unknown")
+        return create_tool_error_result(tool_call_id, str(e))
 
-        return _create_tool_result(tool_call_id, _serialize_result(result))
+    tool_fn = CALCULATOR_TOOLS.get(function_name)
+    if tool_fn is None:
+        logger.warning("Unknown calculator function: %s", function_name)
+        return create_tool_error_result(
+            tool_call_id,
+            f"Unknown function '{function_name}'. Available: {sorted(CALCULATOR_TOOLS.keys())}",
+        )
 
+    try:
+        logger.info("Executing %s with arguments %s", function_name, arguments)
+        result = await tool_fn(**arguments)
+        return create_tool_result(tool_call_id, serialize_tool_result(result))
     except TypeError as e:
-        # Invalid arguments for function
-        logger.error(f"Invalid arguments for {function_name}: {arguments} - {e}")
-        return _create_tool_result(
+        logger.error("Invalid arguments for %s: %s - %s", function_name, arguments, e)
+        return create_tool_error_result(
             tool_call_id,
-            f"Error: Invalid arguments for {function_name}: {str(e)}"
+            f"Invalid arguments for {function_name}: {e}",
         )
-
     except ValueError as e:
-        # Calculation error (e.g., division by zero)
-        logger.error(f"Calculation error in {function_name}: {e}")
-        return _create_tool_result(tool_call_id, f"Error: {str(e)}")
-
+        logger.error("Calculation error in %s: %s", function_name, e)
+        return create_tool_error_result(tool_call_id, str(e))
     except Exception as e:
-        # Unexpected error - don't expose internal details
-        logger.exception(f"Unexpected error executing {function_name}")
-        return _create_tool_result(
-            tool_call_id,
-            "Error: Tool execution failed"
-        )
+        logger.exception("Unexpected error executing %s: %s", function_name, e)
+        return create_tool_error_result(tool_call_id, "Tool execution failed")
 
 
 async def execute_calculator_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -253,15 +184,14 @@ async def execute_calculator_calls(tool_calls: List[Dict[str, Any]]) -> List[Dic
     Returns:
         List of tool result dicts
     """
-    tasks = [execute_calculator_call(tool_call) for tool_call in tool_calls]
-    return await asyncio.gather(*tasks)
+    return await execute_tool_calls(tool_calls, execute_calculator_call)
 
 
 # =============================================================================
 # Tool Schema (for LLM tool description)
 # =============================================================================
 
-from rollout_server.schemas import (
+from osmosis_ai.rollout.core.schemas import (
     OpenAIFunctionPropertySchema,
     OpenAIFunctionParametersSchema,
     OpenAIFunctionSchema,

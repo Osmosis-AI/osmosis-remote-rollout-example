@@ -4,6 +4,9 @@
 
 This RolloutServer drives an agent loop externally using an async-init protocol.
 
+This repo is an **example server**: it delegates the protocol implementation to the
+Osmosis rollout Python SDK (`osmosis_ai.rollout`) and keeps only example agent logic.
+
 High-level flow:
 
 1. Training calls `POST /v1/rollout/init` on RolloutServer (202 Accepted + tools).
@@ -20,34 +23,44 @@ High-level flow:
 - Exposes:
   - `GET /health`
   - `POST /v1/rollout/init` (returns 202)
-- Starts rollouts asynchronously in background tasks.
+- Uses the SDK app factory (`osmosis_ai.rollout.create_app`) for:
+  - background task management
+  - concurrency limiting
+  - idempotency by `rollout_id`
+  - callbacks to `{server_url}/v1/chat/completions` and `{server_url}/v1/rollout/completed`
+  - metrics collection
 
-### Executor (`src/rollout_server/executor.py`)
+### Agent loop (`src/rollout_server/server.py`)
 
-- Owns shared resources:
-  - HTTP client with connection pooling
-  - Concurrency limiting semaphore
-  - Rollout task registry keyed by `rollout_id` (idempotency)
-- Implements the control loop:
-  - Call `/v1/chat/completions`
-  - Parse `tool_calls`
-  - Execute tools
-  - Post `/v1/rollout/completed`
+- This repo provides a minimal `CalculatorAgentLoop` implementation.
+- The agent loop:
+  - calls the trainer's `/v1/chat/completions` via the SDK client (`OsmosisLLMClient`)
+  - executes tool calls (calculator) and appends tool messages
+
+### Osmosis rollout SDK (`osmosis_ai.rollout`)
+
+- The SDK provides:
+  - the FastAPI server factory: `create_app()`
+  - the HTTP client: `OsmosisLLMClient`
+  - protocol schemas: `osmosis_ai.rollout.core.schemas`
+  - tool utilities: `osmosis_ai.rollout.tools`
 
 ### Tools (`src/rollout_server/tools/`)
 
 This reference implementation includes local calculator tools:
+
 - `add`, `subtract`, `multiply`, `divide`
 
 Tool calls are executed asynchronously and tool results are appended as messages:
 
 ```json
-{"role": "tool", "content": "8", "tool_call_id": "call_123"}
+{ "role": "tool", "content": "8", "tool_call_id": "call_123" }
 ```
 
 ### Schemas (`src/rollout_server/schemas/`)
 
-Pydantic models defining:
+This repo re-exports protocol schemas from the SDK (`osmosis_ai.rollout.core.schemas`):
+
 - `/v1/rollout/init` request/response payloads
 - `/v1/chat/completions` request/response payloads
 - `/v1/rollout/completed` callback payload
@@ -55,6 +68,7 @@ Pydantic models defining:
 ## Critical requirement: append-only messages
 
 Multi-turn rollouts must maintain an append-only message history:
+
 - Do not truncate, summarize, reorder, or rewrite earlier messages.
 - Always append new assistant/tool messages to the end.
 

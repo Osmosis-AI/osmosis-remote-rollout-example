@@ -1,13 +1,19 @@
-# Remote Rollout Server - Reference Implementation
+# Remote Rollout Server - SDK-based Example
 
-A reference implementation of a RolloutServer for the Remote Rollout Protocol.
+An example RolloutServer for the Remote Rollout Protocol, built on the Osmosis Python SDK (`osmosis_ai.rollout`).
 
 ## Overview
 
 Remote rollout separates trajectory generation (agent loop) from training infrastructure:
 
 - **Training side**: hosts the LLM inference endpoint (`/v1/chat/completions`) and receives the final rollout callback (`/v1/rollout/completed`).
-- **RolloutServer** (this project): drives the agent loop, executes tools, and maintains an append-only conversation state.
+- **RolloutServer** (this project): provides example agent logic (tools + loop) and delegates protocol handling to the SDK (`create_app`, `OsmosisLLMClient`, schemas).
+
+## Dependency
+
+This repo depends on the published Osmosis SDK package:
+
+- `osmosis-ai[server]==0.2.7`
 
 ## Protocol
 

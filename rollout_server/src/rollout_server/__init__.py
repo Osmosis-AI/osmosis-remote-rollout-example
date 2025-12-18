@@ -1,21 +1,20 @@
-"""Remote Rollout Server - Reference implementation of the Remote Rollout Protocol.
+"""Remote Rollout Server - Example implementation built on the Osmosis SDK.
 
-This package provides a FastAPI server implementing an async-init remote rollout
-protocol:
-- Training calls POST /v1/rollout/init and receives tools (202 Accepted).
-- RolloutServer drives the agent loop by calling back to
-  {server_url}/v1/chat/completions.
-- RolloutServer posts the final result to {server_url}/v1/rollout/completed.
+This package intentionally delegates all remote rollout protocol handling to the
+Osmosis Python SDK (`osmosis_ai.rollout`) and keeps only example agent logic.
 """
 
 from importlib.metadata import version, PackageNotFoundError
 
 from rollout_server.exceptions import (
-    RolloutError,
-    TokenizerLoadError,
+    AgentLoopNotFoundError,
+    OsmosisRolloutError,
+    OsmosisServerError,
+    OsmosisTimeoutError,
+    OsmosisTransportError,
+    OsmosisValidationError,
+    ToolArgumentError,
     ToolExecutionError,
-    RateLimitExceededError,
-    RolloutTimeoutError,
 )
 from rollout_server.schemas import (
     CompletionUsage,
@@ -28,21 +27,22 @@ from rollout_server.schemas import (
     RolloutResponse,
     RolloutStatus,
 )
-from rollout_server.server import app
-from rollout_server.executor import app_state, start_rollout
+from rollout_server.server import CalculatorAgentLoop, app
 
 __all__ = [
     # FastAPI app
     "app",
-    # Executor
-    "app_state",
-    "start_rollout",
-    # Exceptions
-    "RolloutError",
-    "TokenizerLoadError",
+    # Example agent loop
+    "CalculatorAgentLoop",
+    # Exceptions (from osmosis_ai.rollout)
+    "OsmosisRolloutError",
+    "OsmosisTransportError",
+    "OsmosisServerError",
+    "OsmosisValidationError",
+    "OsmosisTimeoutError",
+    "AgentLoopNotFoundError",
     "ToolExecutionError",
-    "RateLimitExceededError",
-    "RolloutTimeoutError",
+    "ToolArgumentError",
     # Schemas
     "CompletionUsage",
     "CompletionsChoice",

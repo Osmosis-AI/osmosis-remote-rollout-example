@@ -8,6 +8,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
+# This script assumes `osmosis-ai[server]` is installed in the environment.
+
 # Default ports
 MOCK_TRAINER_PORT=${MOCK_TRAINER_PORT:-9001}
 ROLLOUT_SERVER_PORT=${ROLLOUT_SERVER_PORT:-9000}

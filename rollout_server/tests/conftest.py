@@ -130,6 +130,15 @@ def patch_httpx_for_mock_trainer(client: TestClient, monkeypatch: pytest.MonkeyP
     """Patch httpx.AsyncClient.post to route trainer callbacks to the mock app."""
 
     original_post = httpx.AsyncClient.post
+    original_init = httpx.AsyncClient.__init__
+
+    def mock_init(self, *args, **kwargs):
+        # In this repo's test environment we never need TLS verification because all
+        # callbacks are routed in-process via TestClient. Disabling verification
+        # also avoids sandbox restrictions around loading system CA bundles.
+        kwargs.setdefault("verify", False)
+        kwargs.setdefault("trust_env", False)
+        return original_init(self, *args, **kwargs)
 
     async def mock_post(self, url: str, **kwargs):
         if "/v1/chat/completions" in url:
@@ -148,6 +157,7 @@ def patch_httpx_for_mock_trainer(client: TestClient, monkeypatch: pytest.MonkeyP
             )
         return await original_post(self, url, **kwargs)
 
+    monkeypatch.setattr(httpx.AsyncClient, "__init__", mock_init)
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
 
 

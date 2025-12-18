@@ -1,6 +1,8 @@
 #!/bin/bash
 # Start RolloutServer
 
+# This script assumes `osmosis-ai[server]` is installed in the environment.
+
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

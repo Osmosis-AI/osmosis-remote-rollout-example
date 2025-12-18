@@ -1,84 +1,36 @@
-"""Pydantic schemas for Remote Rollout Protocol.
+"""Pydantic schemas for the remote rollout protocol.
 
-These schemas define the public API contract between RolloutServer and the training cluster.
-Based on the Remote Rollout Protocol specification in docs/rollout_server.md.
-
-This module re-exports all public schemas from submodules for convenient access:
-
-    from rollout_server.schemas import Message, RolloutRequest, RolloutResponse
-
-Submodules:
-    - constants: Shared constants (VALID_MESSAGE_ROLES, MAX_TOKENS_LIMIT, etc.)
-    - messages: Message, ToolCall, ToolCallFunction, ToolFunction, ToolDefinition, ToolsResponse
-    - params: SamplingParams
-    - rollout: RolloutStatus, RolloutMetrics, RolloutRequest, RolloutResponse
-    - completions: CompletionsChoice, CompletionsRequest, CompletionsResponse
+This example repo intentionally does NOT define its own copies of protocol
+schemas. Instead, it imports the single source of truth from the Osmosis SDK:
+`osmosis_ai.rollout.core.schemas`.
 """
 
-# Constants
-from rollout_server.schemas.constants import (
-    VALID_MESSAGE_ROLES,
-    MAX_TOKENS_LIMIT,
-)
-
-# Message-related schemas
-from rollout_server.schemas.messages import (
-    Message,
-    ToolCall,
-    ToolCallFunction,
-)
-
-# Tool definition schemas (verl-compatible)
-from rollout_server.schemas.tools import (
-    OpenAIFunctionPropertySchema,
-    OpenAIFunctionParametersSchema,
-    OpenAIFunctionSchema,
-    OpenAIFunctionToolSchema,
-    OpenAIFunctionParsedSchema,
-    OpenAIFunctionCallSchema,
-    OpenAIFunctionToolCall,
-    ToolResponse,
-)
-
-# Sampling parameters
-from rollout_server.schemas.params import SamplingParams
-
-# Rollout schemas
-from rollout_server.schemas.rollout import (
-    RolloutStatus,
-    RolloutMetrics,
-    RolloutRequest,
-    RolloutResponse,
-    InitResponse,
-)
-
-# Completions schemas
-from rollout_server.schemas.completions import (
+from osmosis_ai.rollout.core.schemas import (
     CompletionUsage,
     CompletionsChoice,
     CompletionsRequest,
     CompletionsResponse,
+    InitResponse,
+    MessageDict,
+    OpenAIFunctionCallSchema,
+    OpenAIFunctionParametersSchema,
+    OpenAIFunctionParsedSchema,
+    OpenAIFunctionPropertySchema,
+    OpenAIFunctionSchema,
+    OpenAIFunctionToolCall,
+    OpenAIFunctionToolSchema,
+    RolloutMetrics,
+    RolloutRequest,
+    RolloutResponse,
+    RolloutStatus,
+    SamplingParamsDict,
+    ToolResponse,
 )
 
 __all__ = [
-    # Constants
-    "VALID_MESSAGE_ROLES",
-    "MAX_TOKENS_LIMIT",
-    # Messages
-    "Message",
-    "ToolCall",
-    "ToolCallFunction",
-    # Tool definitions (verl-compatible)
-    "OpenAIFunctionPropertySchema",
-    "OpenAIFunctionParametersSchema",
-    "OpenAIFunctionSchema",
-    "OpenAIFunctionToolSchema",
-    "OpenAIFunctionParsedSchema",
-    "OpenAIFunctionCallSchema",
-    "OpenAIFunctionToolCall",
-    "ToolResponse",
-    # Params
-    "SamplingParams",
+    # Type aliases
+    "MessageDict",
+    "SamplingParamsDict",
     # Rollout
     "RolloutStatus",
     "RolloutMetrics",
@@ -90,5 +42,14 @@ __all__ = [
     "CompletionsChoice",
     "CompletionsRequest",
     "CompletionsResponse",
+    # Tool schemas
+    "OpenAIFunctionPropertySchema",
+    "OpenAIFunctionParametersSchema",
+    "OpenAIFunctionSchema",
+    "OpenAIFunctionToolSchema",
+    "OpenAIFunctionParsedSchema",
+    "OpenAIFunctionCallSchema",
+    "OpenAIFunctionToolCall",
+    "ToolResponse",
 ]
 

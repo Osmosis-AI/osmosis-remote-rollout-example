@@ -1,243 +1,106 @@
-"""FastAPI RolloutServer implementing the Remote Rollout Protocol.
+"""Example RolloutServer built on the Osmosis remote rollout Python SDK.
 
-This server implements an async-init protocol:
-- Training calls POST /v1/rollout/init to start a rollout (returns 202 with tools).
-- RolloutServer drives the agent loop by calling back to
-  {server_url}/v1/chat/completions for LLM generations.
-- RolloutServer posts the final result to {server_url}/v1/rollout/completed.
+This repo previously contained a full reference implementation of the remote
+rollout protocol. The protocol implementation now lives in `osmosis_ai.rollout`.
+
+This module keeps only example "agent logic" (a calculator loop) and delegates
+all protocol handling (async-init, idempotency, callbacks, concurrency, metrics)
+to the Osmosis SDK.
+
+This server expects the published `osmosis-ai` package to be installed.
 """
 
-import asyncio
-import json
-import logging
+from __future__ import annotations
+
+import os
 import time
-from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.responses import Response
-from starlette.middleware.base import BaseHTTPMiddleware
-
-from rollout_server.config import settings
-from rollout_server.executor import app_state, start_rollout
-from rollout_server.schemas import (
-    InitResponse,
-    RolloutRequest,
-)
-from rollout_server.tools.calculator import CALCULATOR_TOOL_SCHEMAS
-
-
-# Custom formatter that explicitly uses local time
-class LocalTimeFormatter(logging.Formatter):
-    """Formatter that uses local time with timezone info."""
-    converter = time.localtime
-
-    def formatTime(self, record, datefmt=None):
-        ct = self.converter(record.created)
-        if datefmt:
-            # Add timezone abbreviation
-            s = time.strftime(datefmt, ct)
-            tz = time.strftime("%Z", ct)
-            return f"{s} {tz}"
-        else:
-            t = time.strftime("%Y-%m-%d %H:%M:%S", ct)
-            tz = time.strftime("%Z", ct)
-            return f"{t},{int(record.msecs):03d} {tz}"
-
-
-# Configure logging for all rollout_server modules
-# This ensures all submodules (session, executor, etc.) inherit the configuration
-root_logger = logging.getLogger("rollout_server")
-if not root_logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = LocalTimeFormatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+try:
+    from osmosis_ai.rollout import (
+        RolloutAgentLoop,
+        RolloutContext,
+        RolloutResult,
+        RolloutRequest,
+        create_app,
     )
-    handler.setFormatter(formatter)
-    root_logger.addHandler(handler)
-    root_logger.setLevel(logging.INFO)
+except ModuleNotFoundError as e:
+    raise ModuleNotFoundError(
+        "Cannot import `osmosis_ai.rollout`. Install the Osmosis SDK:\n\n"
+        "  pip install osmosis-ai[server]==0.2.7\n"
+    ) from e
 
-logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# Request/Response Logging Middleware
-# =============================================================================
-
-
-class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
-    """Middleware to log all incoming requests and outgoing responses."""
-
-    # Paths where we skip response logging (only log request payload)
-    SKIP_RESPONSE_LOG_PATHS = {"/tools", "/v1/rollout/init"}
-
-    async def dispatch(self, request: Request, call_next):
-        # Skip logging entirely for health checks to reduce noise
-        if request.url.path == "/health":
-            return await call_next(request)
-
-        # Read and log request body
-        request_body = await request.body()
-        try:
-            request_json = json.loads(request_body) if request_body else {}
-            request_body_str = json.dumps(request_json, indent=2, ensure_ascii=False)
-        except json.JSONDecodeError:
-            request_body_str = request_body.decode("utf-8", errors="replace")
-
-        logger.info(
-            f">>> INCOMING REQUEST: {request.method} {request.url.path}\n"
-            f"Body:\n{request_body_str}"
-        )
-
-        # Reconstruct request with body for downstream handlers
-        async def receive():
-            return {"type": "http.request", "body": request_body}
-
-        request._receive = receive
-
-        # Call the next handler and capture response
-        response = await call_next(request)
-
-        # For certain paths, skip response logging
-        if request.url.path in self.SKIP_RESPONSE_LOG_PATHS:
-            return response
-
-        # Read response body
-        response_body = b""
-        async for chunk in response.body_iterator:
-            response_body += chunk
-
-        try:
-            response_json = json.loads(response_body) if response_body else {}
-            response_body_str = json.dumps(response_json, indent=2, ensure_ascii=False)
-        except json.JSONDecodeError:
-            response_body_str = response_body.decode("utf-8", errors="replace")
-
-        logger.info(
-            f"<<< OUTGOING RESPONSE: {request.method} {request.url.path} - Status: {response.status_code}\n"
-            f"Body:\n{response_body_str}"
-        )
-
-        # Return a new response with the same body
-        return Response(
-            content=response_body,
-            status_code=response.status_code,
-            headers=dict(response.headers),
-            media_type=response.media_type,
-        )
-
-
-# =============================================================================
-# Lifespan Management
-# =============================================================================
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifespan context manager for startup/shutdown."""
-    # Startup: Initialize shared resources
-    logger.info("Starting RolloutServer...")
-    await app_state.initialize()
-    logger.info("RolloutServer startup complete")
-
-    yield
-
-    # Shutdown: Cleanup resources
-    logger.info("Shutting down RolloutServer...")
-    await app_state.cleanup()
-    logger.info("RolloutServer shutdown complete")
-
-
-# =============================================================================
-# FastAPI Application
-# =============================================================================
-
-
-app = FastAPI(
-    title="Remote Rollout Server",
-    description="Reference implementation of the Remote Rollout Protocol",
-    version="0.1.0",
-    lifespan=lifespan
+from rollout_server.tools.calculator import (
+    CALCULATOR_TOOL_SCHEMAS,
+    execute_calculator_calls,
 )
 
-# Add request/response logging middleware
-app.add_middleware(RequestResponseLoggingMiddleware)
+
+class CalculatorAgentLoop(RolloutAgentLoop):
+    """Minimal agent loop demonstrating tool calls with the remote rollout SDK."""
+
+    name = "calculator"
+
+    def get_tools(self, request: RolloutRequest):
+        # This example always exposes the calculator tools.
+        return CALCULATOR_TOOL_SCHEMAS
+
+    async def run(self, ctx: RolloutContext) -> RolloutResult:
+        messages = list(ctx.request.messages)
+        finish_reason = "stop"
+        total_completion_tokens = 0
+
+        for _turn in range(ctx.request.max_turns):
+            result = await ctx.chat(messages, **ctx.request.completion_params)
+            messages.append(result.message)
+
+            # Enforce an advisory token budget (trainer reports usage).
+            usage = result.usage or {}
+            try:
+                total_completion_tokens += int(usage.get("completion_tokens") or 0)
+            except Exception:
+                # Usage is best-effort; do not fail the rollout if trainer omits it.
+                pass
+
+            if total_completion_tokens >= ctx.request.max_tokens_total:
+                finish_reason = "max_tokens"
+                break
+
+            if not result.has_tool_calls:
+                finish_reason = result.finish_reason or "stop"
+                break
+
+            tool_calls = result.tool_calls
+            tool_start = time.monotonic()
+            tool_results = await execute_calculator_calls(tool_calls)
+            latency_ms = (time.monotonic() - tool_start) * 1000.0
+
+            per_call_latency = latency_ms / max(1, len(tool_calls))
+            for _ in tool_calls:
+                ctx.record_tool_call(latency_ms=per_call_latency)
+
+            messages.extend(tool_results)
+
+        else:
+            finish_reason = "max_turns"
+
+        return ctx.complete(messages, finish_reason=finish_reason)
 
 
-# =============================================================================
-# API Endpoints
-# =============================================================================
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy", "service": "rollout-server"}
-
-
-@app.post("/v1/rollout/init", response_model=InitResponse, status_code=202)
-async def init_rollout(request: RolloutRequest) -> InitResponse:
-    """Start a rollout (async-init protocol).
-
-    Returns 202 Accepted with the tool definitions for this rollout, and starts
-    the rollout asynchronously in the background.
-    """
-    rollout_id = request.rollout_id
-    logger.info(f"[{rollout_id}] Received init request: max_turns={request.max_turns}")
-
-    # Select tools for this rollout. This example always returns the calculator tools.
-    tools = start_rollout(request=request, tools=CALCULATOR_TOOL_SCHEMAS)
-    return InitResponse(rollout_id=rollout_id, tools=tools)
-
-
-# =============================================================================
-# Main Entry Point
-# =============================================================================
+# FastAPI application provided by the SDK.
+app = create_app(CalculatorAgentLoop())
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    # Configure uvicorn with detailed access logging
-    # access_log=True ensures each HTTP request is logged with timestamp
+    host = os.getenv("ROLLOUT_SERVER_HOST", "0.0.0.0")
+    port = int(os.getenv("ROLLOUT_SERVER_PORT", "9000"))
+
     uvicorn.run(
         "rollout_server.server:app",
-        host="0.0.0.0",
-        port=settings.server_port,
+        host=host,
+        port=port,
         log_level="info",
         reload=False,
-        access_log=True,  # Enable access logging for each request
-        log_config={
-            "version": 1,
-            "disable_existing_loggers": False,
-            "formatters": {
-                "default": {
-                    "()": "rollout_server.server.LocalTimeFormatter",
-                    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                    "datefmt": "%Y-%m-%d %H:%M:%S",
-                },
-                "access": {
-                    "()": "rollout_server.server.LocalTimeFormatter",
-                    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                    "datefmt": "%Y-%m-%d %H:%M:%S",
-                },
-            },
-            "handlers": {
-                "default": {
-                    "formatter": "default",
-                    "class": "logging.StreamHandler",
-                    "stream": "ext://sys.stdout",
-                },
-                "access": {
-                    "formatter": "access",
-                    "class": "logging.StreamHandler",
-                    "stream": "ext://sys.stdout",
-                },
-            },
-            "loggers": {
-                "uvicorn": {"handlers": ["default"], "level": "INFO"},
-                "uvicorn.error": {"level": "INFO"},
-                "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
-            },
-        },
+        access_log=True,
     )
