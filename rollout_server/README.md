@@ -1,93 +1,62 @@
-# Remote Rollout Server - SDK-based Example
+# Remote Rollout Server - SDK Example
 
-An example RolloutServer for the Remote Rollout Protocol, built on the Osmosis Python SDK (`osmosis_ai.rollout`).
+Example RolloutServer built on the Osmosis Python SDK (`osmosis-ai[server]`).
 
 ## Overview
 
-Remote rollout separates trajectory generation (agent loop) from training infrastructure:
+Remote rollout separates trajectory generation from training infrastructure:
 
-- **Training side**: hosts the LLM inference endpoint (`/v1/chat/completions`) and receives the final rollout callback (`/v1/rollout/completed`).
-- **RolloutServer** (this project): provides example agent logic (tools + loop) and delegates protocol handling to the SDK (`create_app`, `OsmosisLLMClient`, schemas).
+- **Training side**: hosts LLM inference (`/v1/chat/completions`) and receives rollout callback (`/v1/rollout/completed`)
+- **RolloutServer** (this project): implements agent logic (calculator tools) and delegates protocol to the SDK
 
-## Dependency
+## Project Structure
 
-This repo depends on the published Osmosis SDK package:
+```
+rollout_server/
+├── rollout_server/
+│   ├── __init__.py
+│   └── server.py      # Agent loop + calculator tools
+├── tests/
+├── scripts/
+│   └── start_server.sh
+├── pyproject.toml
+└── README.md
+```
 
-- `osmosis-ai[server]==0.2.7`
+## Quick Start
+
+```bash
+# From project root
+cd rollout_server
+
+# Install
+uv sync
+
+# Start server (default port 9000)
+uv run python -m server
+```
 
 ## Protocol
 
-### 1) Start a rollout
+### 1) Init rollout
 
-**Endpoint**: `POST /v1/rollout/init`
+`POST /v1/rollout/init` - Training sends init request, receives `202 Accepted` with available tools.
 
-Training sends an init request and receives `202 Accepted` with the tools available for this rollout.
+### 2) LLM callback
 
-### 2) LLM generation callback
-
-RolloutServer calls the training side:
-
-- `POST {server_url}/v1/chat/completions`
+RolloutServer calls `POST {server_url}/v1/chat/completions` for each generation.
 
 ### 3) Completion callback
 
-RolloutServer posts the final result once:
+RolloutServer posts final result to `POST {server_url}/v1/rollout/completed`.
 
-- `POST {server_url}/v1/rollout/completed`
+## Configuration
 
-### Authentication
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `ROLLOUT_SERVER_HOST` | `0.0.0.0` | Server bind host |
+| `ROLLOUT_SERVER_PORT` | `9000` | Server port |
 
-If `api_key` is provided in the `/v1/rollout/init` request, RolloutServer includes it as a Bearer token in both callback requests:
+## Dependencies
 
-```
-Authorization: Bearer <api_key>
-```
-
-## Running locally
-
-All commands below must be run from the `rollout_server/` directory.
-
-### Install
-
-```bash
-uv sync
-```
-
-### Start servers (mock trainer + RolloutServer)
-
-```bash
-./scripts/start_test_environment.sh
-```
-
-Stop when done:
-
-```bash
-./scripts/stop_test_environment.sh
-```
-
-### Run examples
-
-```bash
-uv run python examples/basic_example.py
-uv run python examples/calculator_example.py
-uv run python examples/e2e_test_with_servers.py
-```
-
-## Testing
-
-```bash
-uv run pytest
-```
-
-## Key requirements
-
-- **Append-only messages**: never truncate, summarize, reorder, or rewrite earlier messages.
-- **Tool message format**: tool responses must include `tool_call_id` matching the tool call `id`.
-- **Idempotency**: `rollout_id` is an idempotency key for `/v1/rollout/init`.
-
-## Documentation
-
-- `docs/REQUEST_FLOW_EXAMPLE.md`
-- `docs/ARCHITECTURE.md`
-- `docs/TESTING.md`
-- `docs/DEPLOYMENT.md`
+- `osmosis-ai[server]==0.2.7`

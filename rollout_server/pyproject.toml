@@ -1,40 +1,15 @@
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "rollout-server"
 version = "0.1.0"
-description = "Reference implementation and testing infrastructure for remote rollout protocol"
-authors = [
-    {name = "Osmosis AI", email = "noreply@osmosis.ai"}
-]
+description = "Example RolloutServer using Osmosis SDK"
 requires-python = ">=3.11"
-readme = "README.md"
-license = {text = "Apache-2.0"}
 
 dependencies = [
     "osmosis-ai[server]==0.2.7",
 ]
 
-[tool.setuptools.packages.find]
-where = ["src"]
-
 [dependency-groups]
 dev = [
-    "pytest>=8.3.0",
-    "pytest-asyncio>=0.24.0",
-    "pytest-cov>=7.0.0",
     "mypy>=1.8.0",
     "ruff>=0.2.0",
 ]
-
-[tool.pytest.ini_options]
-pythonpath = ["."]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-markers = [
-    "integration: integration tests requiring external services",
-    "requires_servers: tests that require running servers",
-]
-
