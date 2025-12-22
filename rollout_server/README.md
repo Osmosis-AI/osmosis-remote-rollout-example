@@ -13,7 +13,8 @@ Remote rollout separates trajectory generation from training infrastructure:
 
 ```
 rollout_server/
-├── server.py         # Agent loop + calculator tools (~250 lines)
+├── server.py         # Agent loop + FastAPI app
+├── tools.py          # Calculator tool definitions
 ├── pyproject.toml
 ├── uv.lock
 └── README.md
@@ -25,11 +26,25 @@ rollout_server/
 # From project root
 cd rollout_server
 
-# Install
+# Install dependencies
 uv sync
+```
 
-# Start server (default port 9000)
+### Option 1: Direct Python
+
+```bash
+# Start server directly (default port 9000)
 uv run python -m server
+```
+
+### Option 2: Using uvicorn directly
+
+```bash
+# Start server with uvicorn
+uv run uvicorn server:app --host 0.0.0.0 --port 9000
+
+# Enable auto-reload for development
+uv run uvicorn server:app --host 0.0.0.0 --port 9000 --reload
 ```
 
 ## Protocol
@@ -55,4 +70,4 @@ RolloutServer posts final result to `POST {server_url}/v1/rollout/completed`.
 
 ## Dependencies
 
-- `osmosis-ai[server]==0.2.7`
+- `osmosis-ai[server]>=0.2.7`
