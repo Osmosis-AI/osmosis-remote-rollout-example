@@ -121,7 +121,7 @@ class AppState:
     async def initialize(self) -> None:
         self.http_client = httpx.AsyncClient(
             timeout=settings.http_client_timeout,
-            limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
+            limits=httpx.Limits(max_keepalive_connections=2000, max_connections=2000),
         )
 
     async def cleanup(self) -> None:
@@ -137,7 +137,7 @@ class AppState:
             if self.http_client is None:
                 self.http_client = httpx.AsyncClient(
                     timeout=settings.http_client_timeout,
-                    limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
+                    limits=httpx.Limits(max_keepalive_connections=2000, max_connections=2000),
                 )
         # mypy: self.http_client is not None here
         return self.http_client
@@ -272,9 +272,27 @@ async def _post_rollout_completed(
             f"server_url={server_url}, error={e}"
         )
         raise
-    except httpx.TimeoutException as e:
+    except httpx.ReadTimeout as e:
         logger.warning(
-            f"[{response.rollout_id}] /v1/rollout/completed timeout: "
+            f"[{response.rollout_id}] /v1/chat/completions read timeout: "
+            f"server_url={server_url}, error={e}"
+        )
+        raise
+    except httpx.ConnectTimeout as e:
+        logger.warning(
+            f"[{response.rollout_id}] /v1/chat/completions connect timeout: "
+            f"server_url={server_url}, error={e}"
+        )
+        raise
+    except httpx.PoolTimeout as e:
+        logger.warning(
+            f"[{response.rollout_id}] /v1/chat/completions pool timeout: "
+            f"server_url={server_url}, error={e}"
+        )
+        raise
+    except httpx.WriteTimeout as e:
+        logger.warning(
+            f"[{response.rollout_id}] /v1/chat/completions write timeout: "
             f"server_url={server_url}, error={e}"
         )
         raise
@@ -337,9 +355,27 @@ async def _call_chat_completions(
             f"server_url={server_url}, error={e}"
         )
         raise
-    except httpx.TimeoutException as e:
+    except httpx.ReadTimeout as e:
         logger.warning(
-            f"[{rollout_id}] /v1/chat/completions timeout: "
+            f"[{rollout_id}] /v1/chat/completions read timeout: "
+            f"server_url={server_url}, error={e}"
+        )
+        raise
+    except httpx.ConnectTimeout as e:
+        logger.warning(
+            f"[{rollout_id}] /v1/chat/completions connect timeout: "
+            f"server_url={server_url}, error={e}"
+        )
+        raise
+    except httpx.PoolTimeout as e:
+        logger.warning(
+            f"[{rollout_id}] /v1/chat/completions pool timeout: "
+            f"server_url={server_url}, error={e}"
+        )
+        raise
+    except httpx.WriteTimeout as e:
+        logger.warning(
+            f"[{rollout_id}] /v1/chat/completions write timeout: "
             f"server_url={server_url}, error={e}"
         )
         raise
@@ -429,7 +465,7 @@ async def _run_rollout_task(request: RolloutRequest, tools: List[ToolSchemaDict]
     except TimeoutError:
         status = RolloutStatus.ERROR
         error_message = f"Rollout timeout exceeded ({settings.rollout_timeout_seconds}s)"
-        extra_fields = {"error_category": "timeout"}
+        extra_fields = {"error_category": "asyncio_timeout"}
 
     except httpx.HTTPStatusError as e:
         status = RolloutStatus.ERROR
