@@ -6,8 +6,10 @@ all protocol handling to the Osmosis SDK.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
+from typing import List, Dict, Any, Optional
 
 try:
     from osmosis_ai.rollout import (
@@ -24,6 +26,58 @@ except ModuleNotFoundError as e:
     ) from e
 
 from tools import CALCULATOR_TOOL_SCHEMAS, execute_calculator_calls
+from rewards import compute_reward
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+
+def get_last_assistant_content(messages: List[Dict[str, Any]]) -> Optional[str]:
+    """Get the content of the last assistant message.
+
+    Args:
+        messages: List of conversation messages.
+
+    Returns:
+        The content of the last assistant message, or None if not found.
+    """
+    for message in reversed(messages):
+        if message.get("role") == "assistant":
+            return message.get("content", "")
+    return None
+
+
+def compute_reward_from_messages(
+    messages: List[Dict[str, Any]], ground_truth: Optional[str]
+) -> Optional[float]:
+    """Compute reward from messages if ground_truth is available.
+
+    Args:
+        messages: Final conversation messages.
+        ground_truth: Expected answer from metadata.
+
+    Returns:
+        Reward score (0.0 or 1.0), or None if ground_truth not provided.
+    """
+    if not ground_truth:
+        return None
+
+    solution_str = get_last_assistant_content(messages)
+    if not solution_str:
+        logger.debug("No assistant message found for reward computation")
+        return 0.0
+
+    try:
+        reward = compute_reward(solution_str, ground_truth)
+        logger.info(f"Computed reward: {reward} (ground_truth={ground_truth})")
+        return reward
+    except Exception as e:
+        logger.warning(f"Reward computation failed: {e}")
+        return None
 
 
 # =============================================================================
@@ -75,7 +129,11 @@ class CalculatorAgentLoop(RolloutAgentLoop):
         else:
             finish_reason = "max_turns"
 
-        return ctx.complete(messages, finish_reason=finish_reason)
+        # Compute reward if ground_truth is provided in metadata
+        ground_truth = ctx.request.metadata.get("ground_truth")
+        reward = compute_reward_from_messages(messages, ground_truth)
+
+        return ctx.complete(messages, finish_reason=finish_reason, reward=reward)
 
 
 # Agent loop instance for CLI usage (osmosis serve -m server:agent_loop)
