@@ -30,14 +30,35 @@ cd rollout_server
 uv sync
 ```
 
-### Option 1: Direct Python
+### Option 1: Using SDK CLI (Recommended)
+
+The SDK provides `osmosis serve` command with built-in validation and features:
+
+```bash
+# Start server with validation (default port 9000)
+uv run osmosis serve -m server:agent_loop
+
+# Specify port
+uv run osmosis serve -m server:agent_loop -p 8080
+
+# Enable debug logging
+uv run osmosis serve -m server:agent_loop --log ./rollout_logs
+
+# Enable auto-reload for development
+uv run osmosis serve -m server:agent_loop --reload
+
+# Validate agent loop without starting server
+uv run osmosis validate -m server:agent_loop
+```
+
+### Option 2: Direct Python
 
 ```bash
 # Start server directly (default port 9000)
 uv run python -m server
 ```
 
-### Option 2: Using uvicorn directly
+### Option 3: Using uvicorn directly
 
 ```bash
 # Start server with uvicorn
@@ -67,6 +88,53 @@ RolloutServer posts final result to `POST {server_url}/v1/rollout/completed`.
 |---------------------|---------|-------------|
 | `ROLLOUT_SERVER_HOST` | `0.0.0.0` | Server bind host |
 | `ROLLOUT_SERVER_PORT` | `9000` | Server port |
+| `ROLLOUT_DEBUG_DIR` | (disabled) | Enable debug logging to this directory |
+
+## Debug Logging
+
+The server uses the SDK's built-in debug logging via `ctx.log_event()`. When enabled, each rollout writes execution traces to JSONL files.
+
+### Enable Debug Logging
+
+```bash
+# Using SDK CLI (recommended)
+uv run osmosis serve -m server:agent_loop --log ./rollout_logs
+
+# Or via environment variable (works with any start method)
+ROLLOUT_DEBUG_DIR=./rollout_logs uv run python -m server
+ROLLOUT_DEBUG_DIR=./rollout_logs uv run uvicorn server:app --port 9000
+```
+
+### Output Structure
+
+```
+rollout_logs/
+├── 1703270400/                    # Timestamp when server started
+│   ├── rollout-abc123.jsonl
+│   └── rollout-def456.jsonl
+```
+
+### Logged Events
+
+The agent loop logs these events (see `server.py`):
+
+| Event | Description |
+|-------|-------------|
+| `pre_llm` | State before each LLM call (turn, message count, summaries) |
+| `llm_response` | LLM response details (tool calls, finish reason) |
+| `tool_results` | Tool execution results |
+| `rollout_complete` | Final state (reward, total turns, finish reason) |
+
+Example JSONL output:
+
+```jsonl
+{"event": "pre_llm", "rollout_id": "abc123", "turn": 0, "num_messages": 1, ...}
+{"event": "llm_response", "rollout_id": "abc123", "turn": 0, "has_tool_calls": true, ...}
+{"event": "tool_results", "rollout_id": "abc123", "turn": 0, "num_tool_results": 1, ...}
+{"event": "rollout_complete", "rollout_id": "abc123", "finish_reason": "stop", "reward": 1.0, ...}
+```
+
+**Note:** `ctx.log_event()` is a no-op when `ROLLOUT_DEBUG_DIR` is not set, so there's zero overhead in production.
 
 ## Dependencies
 

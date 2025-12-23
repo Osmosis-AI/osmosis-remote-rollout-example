@@ -28,6 +28,7 @@ except ModuleNotFoundError as e:
 from tools import CALCULATOR_TOOL_SCHEMAS, execute_calculator_calls
 from rewards import compute_reward
 
+# Optional: Debug logging only, can be ignored
 logger = logging.getLogger(__name__)
 
 
@@ -68,14 +69,17 @@ def compute_reward_from_messages(
 
     solution_str = get_last_assistant_content(messages)
     if not solution_str:
+        # Optional: Debug logging only, can be ignored
         logger.debug("No assistant message found for reward computation")
         return 0.0
 
     try:
         reward = compute_reward(solution_str, ground_truth)
+        # Optional: Debug logging only, can be ignored
         logger.info(f"Computed reward: {reward} (ground_truth={ground_truth})")
         return reward
     except Exception as e:
+        # Optional: Debug logging only, can be ignored
         logger.warning(f"Reward computation failed: {e}")
         return None
 
@@ -99,8 +103,40 @@ class CalculatorAgentLoop(RolloutAgentLoop):
         total_completion_tokens = 0
 
         for _turn in range(ctx.request.max_turns):
+            # Optional: Debug logging only, can be ignored
+            # Uses SDK's debug logging, no-op if ROLLOUT_DEBUG_DIR not set
+            ctx.log_event(
+                "pre_llm",
+                turn=_turn,
+                num_messages=len(messages),
+                messages_summary=[
+                    {
+                        "index": i,
+                        "role": msg.get("role", "?"),
+                        "content_preview": str(msg.get("content", ""))[:100],
+                        "has_tool_calls": "tool_calls" in msg,
+                        "tool_call_id": msg.get("tool_call_id"),
+                    }
+                    for i, msg in enumerate(messages)
+                ],
+            )
+
             result = await ctx.chat(messages, **ctx.request.completion_params)
             messages.append(result.message)
+
+            # Optional: Debug logging only, can be ignored
+            ctx.log_event(
+                "llm_response",
+                turn=_turn,
+                result_message={
+                    "role": result.message.get("role"),
+                    "content_preview": str(result.message.get("content", ""))[:100],
+                    "has_tool_calls": result.has_tool_calls,
+                    "tool_calls_count": len(result.tool_calls) if result.tool_calls else 0,
+                },
+                finish_reason=result.finish_reason,
+                num_messages_after_append=len(messages),
+            )
 
             usage = result.usage or {}
             try:
@@ -126,12 +162,39 @@ class CalculatorAgentLoop(RolloutAgentLoop):
                 ctx.record_tool_call(latency_ms=per_call_latency)
 
             messages.extend(tool_results)
+
+            # Optional: Debug logging only, can be ignored
+            ctx.log_event(
+                "tool_results",
+                turn=_turn,
+                num_tool_results=len(tool_results),
+                tool_results_summary=[
+                    {
+                        "role": tr.get("role"),
+                        "tool_call_id": tr.get("tool_call_id"),
+                        "content_preview": str(tr.get("content", ""))[:50],
+                    }
+                    for tr in tool_results
+                ],
+                num_messages_after_extend=len(messages),
+            )
         else:
             finish_reason = "max_turns"
 
         # Compute reward if ground_truth is provided in metadata
         ground_truth = ctx.request.metadata.get("ground_truth")
         reward = compute_reward_from_messages(messages, ground_truth)
+
+        # Optional: Debug logging only, can be ignored
+        ctx.log_event(
+            "rollout_complete",
+            finish_reason=finish_reason,
+            reward=reward,
+            ground_truth=ground_truth,
+            total_turns=_turn + 1,
+            final_messages_count=len(messages),
+            last_assistant_content=get_last_assistant_content(messages),
+        )
 
         return ctx.complete(messages, finish_reason=finish_reason, reward=reward)
 
@@ -140,7 +203,10 @@ class CalculatorAgentLoop(RolloutAgentLoop):
 agent_loop = CalculatorAgentLoop()
 
 # FastAPI application provided by the SDK.
-app = create_app(agent_loop)
+# Debug logging is controlled via ROLLOUT_DEBUG_DIR environment variable.
+# When set, each rollout writes traces to {debug_dir}/{timestamp}/{rollout_id}.jsonl
+debug_dir = os.getenv("ROLLOUT_DEBUG_DIR")
+app = create_app(agent_loop, debug_dir=debug_dir)
 
 
 if __name__ == "__main__":
