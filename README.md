@@ -15,6 +15,7 @@ Remote rollout separates trajectory generation from training infrastructure:
 ├── server.py         # Agent loop + FastAPI app
 ├── tools.py          # Calculator tool definitions
 ├── rewards.py        # Reward computation
+├── test_data.jsonl   # Example dataset for test mode
 ├── pyproject.toml
 ├── uv.lock
 └── README.md
@@ -64,6 +65,61 @@ uv run uvicorn server:app --host 0.0.0.0 --port 9000
 # Enable auto-reload for development
 uv run uvicorn server:app --host 0.0.0.0 --port 9000 --reload
 ```
+
+## Test Mode
+
+SDK supports local testing without TrainGate using external LLM providers via [LiteLLM](https://docs.litellm.ai/docs/providers).
+
+### Quick Start
+
+```bash
+# Test with OpenAI GPT-4o (default)
+uv run osmosis test -m server:agent_loop -d test_data.jsonl
+
+# Test with Anthropic Claude
+uv run osmosis test -m server:agent_loop -d test_data.jsonl --model anthropic/claude-sonnet-4-20250514
+
+# Interactive debugging (step through each LLM call)
+uv run osmosis test -m server:agent_loop -d test_data.jsonl --interactive
+
+# Start at specific row
+uv run osmosis test -m server:agent_loop -d test_data.jsonl --interactive --row 5
+```
+
+### Dataset Format
+
+Create a JSONL file with required columns:
+
+```jsonl
+{"system_prompt": "You are a calculator assistant.", "user_prompt": "What is 25 + 17?", "ground_truth": "42"}
+{"system_prompt": "You are a calculator assistant.", "user_prompt": "What is 100 / 4?", "ground_truth": "25"}
+```
+
+See `test_data.jsonl` for a working example.
+
+### CLI Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-m, --module` | (required) | Module path to agent loop |
+| `-d, --dataset` | (required) | Path to dataset file |
+| `--model` | `gpt-4o` | LLM model (LiteLLM format) |
+| `--max-turns` | `10` | Maximum agent turns per row |
+| `--limit` | all | Maximum rows to test |
+| `--offset` | `0` | Rows to skip |
+| `-i, --interactive` | - | Enable step-by-step debugging |
+| `--row N` | - | Initial row for interactive mode |
+| `-o, --output` | - | Write results to JSON file |
+| `--debug` | - | Enable debug output |
+
+### Supported Providers
+
+- OpenAI: `gpt-4o`, `gpt-4-turbo`
+- Anthropic: `anthropic/claude-sonnet-4-20250514`, `anthropic/claude-3-haiku-20240307`
+- Groq: `groq/llama-3.1-70b-versatile`
+- Ollama: `ollama/llama2` (with `--base-url http://localhost:11434`)
+
+Set API keys via environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.) or `--api-key`.
 
 ## Protocol
 
@@ -135,4 +191,4 @@ Example JSONL output:
 
 ## Dependencies
 
-- `osmosis-ai[server]>=0.2.9`
+- `osmosis-ai[server]>=0.2.10`
