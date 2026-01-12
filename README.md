@@ -135,4 +135,4 @@ Example JSONL output:
 
 ## Dependencies
 
-- `osmosis-ai[server]>=0.2.8`
+- `osmosis-ai[server]>=0.2.9`

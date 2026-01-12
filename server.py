@@ -22,7 +22,7 @@ try:
 except ModuleNotFoundError as e:
     raise ModuleNotFoundError(
         "Cannot import `osmosis_ai.rollout`. Install the Osmosis SDK:\n\n"
-        "  pip install osmosis-ai[server]==0.2.7\n"
+        "  pip install osmosis-ai[server]>=0.2.9\n"
     ) from e
 
 from tools import CALCULATOR_TOOL_SCHEMAS, execute_calculator_calls

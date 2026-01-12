@@ -5,7 +5,7 @@ description = "Example RolloutServer using Osmosis SDK"
 requires-python = ">=3.11"
 
 dependencies = [
-    "osmosis-ai[server]==0.2.8",
+    "osmosis-ai[server]>=0.2.9",
 ]
 
 [dependency-groups]
