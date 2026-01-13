@@ -156,20 +156,21 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "0.49.0"
+version = "0.75.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "distro" },
+    { name = "docstring-parser" },
     { name = "httpx" },
     { name = "jiter" },
     { name = "pydantic" },
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/86/e3/a88c8494ce4d1a88252b9e053607e885f9b14d0a32273d47b727cbee4228/anthropic-0.49.0.tar.gz", hash = "sha256:c09e885b0f674b9119b4f296d8508907f6cff0009bc20d5cf6b35936c40b4398", size = 210016, upload-time = "2025-02-28T19:35:47.01Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/04/1f/08e95f4b7e2d35205ae5dcbb4ae97e7d477fc521c275c02609e2931ece2d/anthropic-0.75.0.tar.gz", hash = "sha256:e8607422f4ab616db2ea5baacc215dd5f028da99ce2f022e33c7c535b29f3dfb", size = 439565, upload-time = "2025-11-24T20:41:45.28Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/76/74/5d90ad14d55fbe3f9c474fdcb6e34b4bed99e3be8efac98734a5ddce88c1/anthropic-0.49.0-py3-none-any.whl", hash = "sha256:bbc17ad4e7094988d2fa86b87753ded8dce12498f4b85fe5810f208f454a8375", size = 243368, upload-time = "2025-02-28T19:35:44.963Z" },
+    { url = "https://files.pythonhosted.org/packages/60/1c/1cd02b7ae64302a6e06724bf80a96401d5313708651d277b1458504a1730/anthropic-0.75.0-py3-none-any.whl", hash = "sha256:ea8317271b6c15d80225a9f3c670152746e88805a7a61e14d4a374577164965b", size = 388164, upload-time = "2025-11-24T20:41:43.587Z" },
 ]
 
 [[package]]
@@ -330,6 +331,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fc/f8/98eea607f65de6527f8a2e8885fc8015d3e6f5775df186e443e0964a11c3/distro-1.9.0.tar.gz", hash = "sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed", size = 60722, upload-time = "2023-12-24T09:54:32.31Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2", size = 20277, upload-time = "2023-12-24T09:54:30.421Z" },
+]
+
+[[package]]
+name = "docstring-parser"
+version = "0.17.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b2/9d/c3b43da9515bd270df0f80548d9944e389870713cc1fe2b8fb35fe2bcefd/docstring_parser-0.17.0.tar.gz", hash = "sha256:583de4a309722b3315439bb31d64ba3eebada841f2e2cee23b99df001434c912", size = 27442, upload-time = "2025-07-21T07:35:01.868Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/55/e2/2537ebcff11c1ee1ff17d8d0b6f4db75873e3b0fb32c2d4a2ee31ecb310a/docstring_parser-0.17.0-py3-none-any.whl", hash = "sha256:cf2569abd23dce8099b300f9b4fa8191e9582dda731fd533daf54c4551658708", size = 36896, upload-time = "2025-07-21T07:35:00.684Z" },
 ]
 
 [[package]]
@@ -1253,7 +1263,7 @@ wheels = [
 
 [[package]]
 name = "osmosis-ai"
-version = "0.2.10"
+version = "0.2.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anthropic" },
@@ -1269,20 +1279,18 @@ dependencies = [
     { name = "xai-sdk" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/89/b7/e2adeafee94384c4cd912c5aa6491b1eb994faf0e3cf663d65b5647625f2/osmosis_ai-0.2.10.tar.gz", hash = "sha256:3c5d478a1d7d0f4ab08b47e8e54cbdc411c5744713d71ec53c95e49d638ff106", size = 152318, upload-time = "2026-01-12T20:42:04.76Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/35/70/bb3556c3f994dbfba395d3ec1f7c1267ccbe5cc89721994360447ba2f1f4/osmosis_ai-0.2.11.tar.gz", hash = "sha256:ff9511e7ac10899ab68e59f5b308fd007c3587b0c5d39e0c19815d18c4ea3604", size = 153163, upload-time = "2026-01-13T06:41:50.076Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/25/94/5676dcd6479ee8858675e0952309fe2508e0f0fae0e89b04d367fc15106b/osmosis_ai-0.2.10-py3-none-any.whl", hash = "sha256:c6717770b668fdbf43f51ac0928373013416c8053ec126f9d9bee3939b9d1fb9", size = 149813, upload-time = "2026-01-12T20:42:03.818Z" },
+    { url = "https://files.pythonhosted.org/packages/31/88/0a158639de55e7fe8ec42479ba69512d04ab9671f83fc26417ef22ef7b26/osmosis_ai-0.2.11-py3-none-any.whl", hash = "sha256:e1afc84b3926534261bc9fe10e785eff19905e08344b74302586785d0a6d985b", size = 150643, upload-time = "2026-01-13T06:41:47.9Z" },
 ]
 
 [package.optional-dependencies]
 server = [
     { name = "fastapi" },
-    { name = "uvicorn" },
-]
-test-mode = [
     { name = "litellm" },
     { name = "pyarrow" },
     { name = "rich" },
+    { name = "uvicorn" },
 ]
 
 [[package]]
@@ -1812,7 +1820,7 @@ name = "rollout-server"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "osmosis-ai", extra = ["server", "test-mode"] },
+    { name = "osmosis-ai", extra = ["server"] },
 ]
 
 [package.dev-dependencies]
@@ -1822,7 +1830,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "osmosis-ai", extras = ["server", "test-mode"], specifier = ">=0.2.10" }]
+requires-dist = [{ name = "osmosis-ai", extras = ["server"], specifier = ">=0.2.11" }]
 
 [package.metadata.requires-dev]
 dev = [
